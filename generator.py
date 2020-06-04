@@ -11,11 +11,16 @@ from vqvae import Model as VQVAE
 
 class Model(pl.LightningModule):
 
-    def __init__(self, hparams):
+    def __init__(self, hparams, load_dataset=True):
         super().__init__()
-        self.hparams = hparams
-        self.dataset = self.load_dataset(hparams)
+        if load_dataset:
+            self.dataset = self.load_dataset(hparams)
+            hparams.vocab_size = self.dataset.vocab_size
+            hparams.height, hparams.width = self.dataset.shape[1:]
+            hparams.max_length = self.dataset.length
+            hparams.start_token = self.dataset.start_token
         self.model = self.build_model(hparams)
+        self.hparams = hparams
 
     def load_dataset(self, hparams):
         print("Loading the dataset of codes into memory...")
@@ -39,6 +44,7 @@ class Model(pl.LightningModule):
         dataset.vocab_size = vocab_size
         dataset.shape = codes.shape
         dataset.length = codes_.shape[1]
+        dataset.start_token = start_token
         print("Done loading dataset")
         return dataset
 
@@ -47,30 +53,29 @@ class Model(pl.LightningModule):
 
     def build_model(self, hparams):
         config = GPT2Config(
-            vocab_size=self.dataset.vocab_size,
-            n_positions=self.dataset.length,
-            n_ctx=self.dataset.length,
+            vocab_size=hparams.vocab_size,
+            n_positions=hparams.max_length,
+            n_ctx=hparams.max_length,
             n_embd=512,
             n_layer=4,
             n_head=1,
             resid_pdrop=0,
             embd_pdrop=0,
             attn_pdrop=0,
-            bos_token_id=self.dataset.vocab_size-1,
         )
         model = GPT2LMHeadModel(config)
         return model
 
-    def generate(self, nb_examples):
-        input_ids = torch.zeros(nb_examples).long().to(self.device)
-        input_ids[:] = start
+    def generate(self, nb_examples=1, **kwargs):
+        input_ids = torch.zeros(nb_examples, 1).long().to(self.device)
+        input_ids[:] = self.hparams.vocab_size-1
         result = self.model.generate(
             input_ids,
-            do_sample=True,
-            max_length=self.length,
+            max_length=self.hparams.max_length,
+            **kwargs,
         )
-        height, width = self.dataset.shape[1:]
-        result = result.view(nb_examples, height, width)
+        result = result[:, 1:]
+        result = result.view(nb_examples, self.hparams.height, self.hparams.width)
         return result
 
 
