@@ -19,10 +19,12 @@ class Model(pl.LightningModule):
 
     def load_dataset(self, hparams):
         print("Loading the dataset of codes into memory...")
+        device = "cuda" if hparams.gpus else  "cpu"
         vqvae = VQVAE.load_from_checkpoint(hparams.vqvae_model_path)
+        vqvae = vqvae.to(device)
         codes = []
         for X, _ in vqvae.train_dataloader():
-            X = X.to(vqvae.device)
+            X = X.to(device)
             zinds = vqvae.encode(X)
             codes.append(zinds.data.cpu())
         codes = torch.cat(codes)
