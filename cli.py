@@ -54,7 +54,7 @@ class Model(LightningModule):
             commitment_cost=hparams.commitment_cost,
             decay=hparams.decay,
             nb_channels=hparams.nb_channels,
-            nb_blocks=int(math.log2(hparams.image_size // hparams.stride)),
+            nb_blocks=int(math.log2(hparams.stride)),
         )
 
     def training_step(self, batch, batch_idx):
