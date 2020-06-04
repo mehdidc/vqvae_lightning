@@ -1,4 +1,4 @@
-folder: out
+folder: out/vqvae
 
 num_hiddens: 128
 num_residual_layers: 2

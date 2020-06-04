@@ -1,0 +1,9 @@
+folder: out/generator
+epochs: 200
+vqvae_model_path: out/vqvae/logs/version_0/checkpoints/epoch=0.ckpt
+lr: 0.001
+weight_decay: 0
+scheduler_gamma: 1
+batch_size: 64
+num_workers: 1
+gpus: 0
