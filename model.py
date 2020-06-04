@@ -227,7 +227,7 @@ class Decoder(nn.Module):
         x = self._residual_stack(x)
         return self.upsample(x)
 
-class VQAE(nn.Module):
+class VQVAE(nn.Module):
     def __init__(
         self,
         num_hiddens=128,

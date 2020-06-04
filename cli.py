@@ -1,11 +1,10 @@
 import yaml
 import os
 from functools import partial
-from clize import run
 from argparse import Namespace
-import numpy as np
-from imageio import imsave
 from collections import OrderedDict
+import math
+from clize import run
 
 import torch
 import torch.nn as nn
@@ -19,7 +18,7 @@ import torchvision
 from data import Shuffle
 from data import load_dataset
 from data import SubSet
-from model import VQAE
+from model import VQVAE
 
 import pytorch_lightning as pl
 from pytorch_lightning.core import LightningModule
@@ -48,7 +47,7 @@ class Model(LightningModule):
         return self.model(x)
 
     def build_model(self, hparams):
-        return VQAE(
+        return VQVAE(
             num_hiddens=hparams.num_hiddens,
             num_residual_layers=hparams.num_residual_layers,
             num_residual_hiddens=hparams.num_residual_hiddens,
@@ -57,11 +56,10 @@ class Model(LightningModule):
             commitment_cost=hparams.commitment_cost,
             decay=hparams.decay,
             nb_channels=hparams.nb_channels,
-            nb_blocks=int(np.log2(hparams.image_size//hparams.stride)),
+            nb_blocks=int(math.log2(hparams.image_size//hparams.stride)),
         )
     
     def training_step(self, batch, batch_idx):
-        self.save_grids("train")
         X, _ = batch
         commit_loss, XR, perplexity = self.model(X)
         recons_loss = F.mse_loss(X, XR)
@@ -110,11 +108,8 @@ class Model(LightningModule):
         self.logger.experiment.add_image('inputs', X_grid, self.current_epoch)
         self.logger.experiment.add_image('reconstructions', XR_grid, self.current_epoch)
 
-        X_grid = X_grid.permute(1,2,0).numpy()
-        XR_grid = XR_grid.permute(1,2,0).numpy()
-        grid = np.concatenate((X_grid, XR_grid), axis=1)
-        grid = (grid*255).astype("uint8")
-        imsave(os.path.join(self.hparams.folder, f"{split}_rec.png"), grid)
+        grid = torch.cat((X_grid, XR_grid), dim=2)
+        torchvision.utils.save_image(grid, os.path.join(self.hparams.folder, f"{split}_rec.png"))
 
 
 def train(hparams_path):
