@@ -142,7 +142,11 @@ class ResidualStack(nn.Module):
 
 class Encoder(nn.Module):
     def __init__(
-        self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens,
+        self,
+        in_channels,
+        num_hiddens,
+        num_residual_layers,
+        num_residual_hiddens,
         nb_downsample_blocks=2,
     ):
         super().__init__()
@@ -206,10 +210,10 @@ class Decoder(nn.Module):
         )
         layers = []
         for i in range(nb_upsample_blocks):
-            last =  i == nb_upsample_blocks - 1
+            last = i == nb_upsample_blocks - 1
             out = out_channels if last else num_hiddens
             layers.append(
-                 nn.ConvTranspose2d(
+                nn.ConvTranspose2d(
                     in_channels=num_hiddens,
                     out_channels=out,
                     kernel_size=4,
@@ -227,6 +231,7 @@ class Decoder(nn.Module):
         x = self._residual_stack(x)
         return self.upsample(x)
 
+
 class VQVAE(nn.Module):
     def __init__(
         self,
@@ -242,7 +247,10 @@ class VQVAE(nn.Module):
     ):
         super().__init__()
         self._encoder = Encoder(
-            nb_channels, num_hiddens, num_residual_layers, num_residual_hiddens,
+            nb_channels,
+            num_hiddens,
+            num_residual_layers,
+            num_residual_hiddens,
             nb_downsample_blocks=nb_blocks,
         )
         self._pre_vq_conv = nn.Conv2d(

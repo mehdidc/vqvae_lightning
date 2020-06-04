@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
-from torch.utils.data import TensorDataset
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_scheduler
 import torchvision
@@ -25,7 +24,6 @@ from pytorch_lightning.core import LightningModule
 
 
 class Model(LightningModule):
-    
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
@@ -34,9 +32,9 @@ class Model(LightningModule):
 
     def load_dataset(self, hparams):
         dataset = load_dataset(
-            hparams.dataset_folder, 
-            image_size=hparams.image_size, 
-            nb_channels=hparams.nb_channels
+            hparams.dataset_folder,
+            image_size=hparams.image_size,
+            nb_channels=hparams.nb_channels,
         )
         if hparams.nb_examples is not None:
             dataset = Shuffle(dataset)
@@ -56,9 +54,9 @@ class Model(LightningModule):
             commitment_cost=hparams.commitment_cost,
             decay=hparams.decay,
             nb_channels=hparams.nb_channels,
-            nb_blocks=int(math.log2(hparams.image_size//hparams.stride)),
+            nb_blocks=int(math.log2(hparams.image_size // hparams.stride)),
         )
-    
+
     def training_step(self, batch, batch_idx):
         X, _ = batch
         commit_loss, XR, perplexity = self.model(X)
@@ -74,7 +72,7 @@ class Model(LightningModule):
             shuffle=True,
             num_workers=self.hparams.num_workers,
         )
-    
+
     def configure_optimizers(self):
         optimizer = optim.Adam(
             self.parameters(),
@@ -85,10 +83,10 @@ class Model(LightningModule):
             optimizer, gamma=self.hparams.scheduler_gamma
         )
         return [optimizer], [scheduler]
-    
+
     def on_epoch_end(self):
         self.save_grids("train")
-    
+
     def save_grids(self, split):
         if split == "train":
             loader = self.train_dataloader()
@@ -102,24 +100,23 @@ class Model(LightningModule):
         commit_loss, XR, perplexity = self.model(X)
         X = X.data.cpu()
         XR = XR.data.cpu()
-        
+
         X_grid = torchvision.utils.make_grid(X)
         XR_grid = torchvision.utils.make_grid(XR)
-        self.logger.experiment.add_image('inputs', X_grid, self.current_epoch)
-        self.logger.experiment.add_image('reconstructions', XR_grid, self.current_epoch)
+        self.logger.experiment.add_image("inputs", X_grid, self.current_epoch)
+        self.logger.experiment.add_image("reconstructions", XR_grid, self.current_epoch)
 
         grid = torch.cat((X_grid, XR_grid), dim=2)
-        torchvision.utils.save_image(grid, os.path.join(self.hparams.folder, f"{split}_rec.png"))
+        torchvision.utils.save_image(
+            grid, os.path.join(self.hparams.folder, f"{split}_rec.png")
+        )
 
 
 def train(hparams_path):
     hparams = load_hparams(hparams_path)
     os.makedirs(hparams.folder, exist_ok=True)
     model = Model(hparams)
-    logger = pl.loggers.TensorBoardLogger(
-        save_dir=hparams.folder,
-        name='logs'
-    )
+    logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
     trainer = pl.Trainer(
         default_root=hparams.folder,
         max_epochs=hparams.epochs,
@@ -129,8 +126,10 @@ def train(hparams_path):
     )
     trainer.fit(model)
 
+
 def load_hparams(path):
     return Namespace(**yaml.load(open(path).read()))
+
 
 if __name__ == "__main__":
     run([train])

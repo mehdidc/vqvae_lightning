@@ -97,7 +97,6 @@ class Gray:
         return x[0:1]
 
 
-
 class SubSet:
     def __init__(self, dataset, nb):
         self.dataset = dataset
