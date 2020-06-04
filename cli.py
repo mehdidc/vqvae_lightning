@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 from vqvae import Model as VQVAE
 from generator import Model as Generator
 
+
 def train_vqvae(hparams_path):
     hparams = load_hparams(hparams_path)
     os.makedirs(hparams.folder, exist_ok=True)
@@ -42,24 +43,21 @@ def train_transformer_generator(hparams_path):
     )
     trainer.fit(model)
 
+
 @torch.no_grad()
-def generate(generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1):
-    gen = Generator.load_from_checkpoint(
-        generator_model_path,
-        load_dataset=False,
-    )
+def generate(
+    generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1
+):
+    gen = Generator.load_from_checkpoint(generator_model_path, load_dataset=False,)
     gen = gen.to(device)
     vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
     vqvae = vqvae.to(device)
     gen.eval()
     vqvae.eval()
-    codes = gen.generate(
-        nb_examples,
-        do_sample=True,
-        temperature=temperature,
-    )
+    codes = gen.generate(nb_examples, do_sample=True, temperature=temperature,)
     images = vqvae.model.reconstruct_from_code(codes)
     torchvision.utils.save_image(images, out)
+
 
 if __name__ == "__main__":
     run([train_vqvae, train_transformer_generator, generate])

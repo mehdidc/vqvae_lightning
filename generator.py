@@ -9,8 +9,8 @@ from torch import optim
 
 from vqvae import Model as VQVAE
 
-class Model(pl.LightningModule):
 
+class Model(pl.LightningModule):
     def __init__(self, hparams, load_dataset=True):
         super().__init__()
         if load_dataset:
@@ -24,7 +24,7 @@ class Model(pl.LightningModule):
 
     def load_dataset(self, hparams):
         print("Loading the dataset of codes into memory...")
-        device = "cuda" if hparams.gpus else  "cpu"
+        device = "cuda" if hparams.gpus else "cpu"
         vqvae = VQVAE.load_from_checkpoint(hparams.vqvae_model_path)
         vqvae = vqvae.to(device)
         codes = []
@@ -34,12 +34,11 @@ class Model(pl.LightningModule):
             codes.append(zinds.data.cpu())
         codes = torch.cat(codes)
         vocab_size = vqvae.model.num_embeddings + 1
-        start_token = vocab_size-1
+        start_token = vocab_size - 1
         codes_ = codes.view(len(codes), -1)
-        codes_ = torch.cat([
-            (torch.ones(len(codes_), 1)*start_token).long(),
-            codes_,
-        ], dim=1)
+        codes_ = torch.cat(
+            [(torch.ones(len(codes_), 1) * start_token).long(), codes_,], dim=1
+        )
         dataset = TensorDataset(codes_)
         dataset.vocab_size = vocab_size
         dataset.shape = codes.shape
@@ -68,29 +67,19 @@ class Model(pl.LightningModule):
 
     def generate(self, nb_examples=1, **kwargs):
         input_ids = torch.zeros(nb_examples, 1).long().to(self.device)
-        input_ids[:] = self.hparams.vocab_size-1
+        input_ids[:] = self.hparams.vocab_size - 1
         result = self.model.generate(
-            input_ids,
-            max_length=self.hparams.max_length,
-            **kwargs,
+            input_ids, max_length=self.hparams.max_length, **kwargs,
         )
         result = result[:, 1:]
         result = result.contiguous()
         result = result.view(nb_examples, self.hparams.height, self.hparams.width)
         return result
 
-
     def training_step(self, batch, batch_idx):
-        X, = batch
+        (X,) = batch
         loss, *rest = self.model(X, labels=X)
-        output = OrderedDict(
-            {
-                "loss": loss,
-                "log": {
-                    "loss": loss,
-                },
-            }
-        )
+        output = OrderedDict({"loss": loss, "log": {"loss": loss,},})
         return output
 
     def train_dataloader(self):
