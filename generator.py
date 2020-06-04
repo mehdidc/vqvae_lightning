@@ -28,10 +28,14 @@ class Model(pl.LightningModule):
         vqvae = VQVAE.load_from_checkpoint(hparams.vqvae_model_path)
         vqvae = vqvae.to(device)
         codes = []
+        nb = 0
         for X, _ in vqvae.train_dataloader():
             X = X.to(device)
             zinds = vqvae.encode(X)
             codes.append(zinds.data.cpu())
+            nb += len(zinds)
+            if hparams.nb_examples and nb >= hparams.nb_examples:
+                break
         codes = torch.cat(codes)
         vocab_size = vqvae.model.num_embeddings + 1
         start_token = vocab_size - 1
