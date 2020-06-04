@@ -90,7 +90,6 @@ class Model(LightningModule):
     
     def on_epoch_end(self):
         self.save_grids("train")
-        self.save_grids("valid")
     
     def save_grids(self, split):
         if split == "train":
@@ -122,11 +121,16 @@ def train(hparams_path):
     hparams = load_hparams(hparams_path)
     os.makedirs(hparams.folder, exist_ok=True)
     model = Model(hparams)
+    logger = pl.loggers.TensorBoardLogger(
+        save_dir=hparams.folder,
+        name='logs'
+    )
     trainer = pl.Trainer(
         default_root=hparams.folder,
         max_epochs=hparams.epochs,
         show_progress_bar=False,
         gpus=hparams.gpus,
+        logger=logger,
     )
     trainer.fit(model)
 

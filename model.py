@@ -1,3 +1,7 @@
+# Credits to:
+# - https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb
+# - the above notebook is itself is based on SONNET from deepmind
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,9 +11,6 @@ import torch.optim as optim
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torchvision.utils import make_grid
-
-# from https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb
-# which itself is based on SONNET from deepmind
 
 
 class VectorQuantizerEMA(nn.Module):
@@ -104,7 +105,6 @@ class Residual(nn.Module):
                 kernel_size=3,
                 stride=1,
                 padding=1,
-                # bias=False,
             ),
             nn.InstanceNorm2d(num_residual_hiddens),
             nn.ReLU(True),
@@ -113,7 +113,6 @@ class Residual(nn.Module):
                 out_channels=num_hiddens,
                 kernel_size=1,
                 stride=1,
-                # bias=False,
             ),
             nn.InstanceNorm2d(num_residual_hiddens),
         )
