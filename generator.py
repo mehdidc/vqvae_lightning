@@ -25,11 +25,17 @@ class Model(pl.LightningModule):
             zinds = vqvae.encode(X)
             codes.append(zinds.data.cpu())
         codes = torch.cat(codes)
-        vocab_size = vqvae.model.num_embeddings
-        dataset = TensorDataset(codes)
+        vocab_size = vqvae.model.num_embeddings + 1
+        start_token = vocab_size-1
+        codes_ = codes.view(len(codes), -1)
+        codes_ = torch.cat([
+            (torch.ones(len(codes_), 1)*start_token).long(),
+            codes_,
+        ], dim=1)
+        dataset = TensorDataset(codes_)
         dataset.vocab_size = vocab_size
         dataset.shape = codes.shape
-        dataset.length = reduce(lambda x,y:x*y, codes.shape[1:])
+        dataset.length = codes_.shape[1]
         return dataset
 
     def forward(self, x):
@@ -41,11 +47,12 @@ class Model(pl.LightningModule):
             n_positions=self.dataset.length,
             n_ctx=self.dataset.length,
             n_embd=512,
-            n_layer=1,
+            n_layer=4,
             n_head=1,
             resid_pdrop=0,
             embd_pdrop=0,
             attn_pdrop=0,
+            bos_token_id=self.dataset.vocab_size-1,
         )
         model = GPT2LMHeadModel(config)
         return model
@@ -65,7 +72,6 @@ class Model(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         X, = batch
-        X = X.view(len(X), -1)
         loss, *rest = self.model(X, labels=X)
         output = OrderedDict(
             {
