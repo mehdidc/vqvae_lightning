@@ -37,6 +37,8 @@ class Model(pl.LightningModule):
             if hparams.nb_examples and nb >= hparams.nb_examples:
                 break
         codes = torch.cat(codes)
+        if hparams.nb_examples and len(codes) >= hparams.nb_examples:
+            codes = codes[:hparams.nb_examples]
         vocab_size = vqvae.model.num_embeddings + 1
         start_token = vocab_size - 1
         codes_ = codes.view(len(codes), -1)
