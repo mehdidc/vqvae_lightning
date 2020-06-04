@@ -32,7 +32,7 @@ class Model(LightningModule):
 
     def load_dataset(self, hparams):
         dataset = load_dataset(
-            hparams.dataset_folder,
+            hparams.train_dataset_folder,
             image_size=hparams.image_size,
             nb_channels=hparams.nb_channels,
         )
