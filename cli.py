@@ -46,7 +46,7 @@ def train_transformer_generator(hparams_path):
 
 @torch.no_grad()
 def generate(
-    generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1
+    generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.
 ):
     gen = Generator.load_from_checkpoint(generator_model_path, load_dataset=False,)
     gen = gen.to(device)
