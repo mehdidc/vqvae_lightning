@@ -75,6 +75,7 @@ class Model(pl.LightningModule):
             **kwargs,
         )
         result = result[:, 1:]
+        result = result.contiguous()
         result = result.view(nb_examples, self.hparams.height, self.hparams.width)
         return result
 

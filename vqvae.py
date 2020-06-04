@@ -304,7 +304,6 @@ class VQVAE(nn.Module):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
         loss, quantized, perplexity, encoding_indices = self._vq_vae(z)
-        encoding_indices = encoding_indices.contiguous()
         return encoding_indices
 
     def reconstruct_from_code(self, encoding_indices):
