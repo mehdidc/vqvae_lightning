@@ -100,7 +100,7 @@ class Model(LightningModule):
         commit_loss, XR, perplexity = self.model(X)
         X = X.data.cpu()
         XR = XR.data.cpu()
-        nrow = int(np.sqrt(len(X)))
+        nrow = int(math.sqrt(len(X)))
         X_grid = torchvision.utils.make_grid(X, nrow=nrow)
         XR_grid = torchvision.utils.make_grid(XR, nrow=nrow)
         self.logger.experiment.add_image("inputs", X_grid, self.current_epoch)
