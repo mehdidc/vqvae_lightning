@@ -62,7 +62,14 @@ class Model(LightningModule):
         commit_loss, XR, perplexity = self.model(X)
         recons_loss = F.mse_loss(X, XR)
         loss = recons_loss + commit_loss
-        output = OrderedDict({"loss": loss, "log": {"loss": loss},})
+        output = OrderedDict({
+            "loss": loss, 
+            "log": {
+                "loss": loss,
+                "commit_loss": commit_loss,
+                "recons_loss": recons_loss,
+            },
+        })
         return output
 
     def train_dataloader(self):
