@@ -18,6 +18,7 @@ class Model(pl.LightningModule):
         self.model = self.build_model(hparams)
 
     def load_dataset(self, hparams):
+        print("Loading the dataset of codes into memory...")
         vqvae = VQVAE.load_from_checkpoint(hparams.vqvae_model_path)
         codes = []
         for X, _ in vqvae.train_dataloader():
@@ -36,6 +37,7 @@ class Model(pl.LightningModule):
         dataset.vocab_size = vocab_size
         dataset.shape = codes.shape
         dataset.length = codes_.shape[1]
+        print("Done loading dataset")
         return dataset
 
     def forward(self, x):
