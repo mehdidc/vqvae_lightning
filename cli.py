@@ -7,6 +7,8 @@ from clize import run
 import torch
 import torchvision
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+
 from vqvae import Model as VQVAE
 from generator import Model as Generator
 
@@ -30,7 +32,7 @@ def load_hparams(path):
     return Namespace(**yaml.load(open(path).read()))
 
 
-def train_transformer_generator(hparams_path):
+def train_transformer_generator(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
     model = Generator(hparams)
     logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
@@ -40,6 +42,7 @@ def train_transformer_generator(hparams_path):
         show_progress_bar=False,
         gpus=hparams.gpus,
         logger=logger,
+        resume_from_checkpoint=checkpoint,
     )
     trainer.fit(model)
 
