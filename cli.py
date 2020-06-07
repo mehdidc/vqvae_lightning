@@ -8,6 +8,7 @@ import torch
 import torchvision
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateLogger
 
 from vqvae import Model as VQVAE
 from generator import Model as Generator
@@ -35,6 +36,12 @@ def load_hparams(path):
 def train_transformer_generator(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
     model = Generator(hparams)
+    trainer = pl.Trainer()
+    if hparams.lr == 0:
+        lr_finder = trainer.lr_find(model, num_training=20)
+        new_lr = lr_finder.suggestion()
+        print(new_lr)
+        model.hparams.lr = new_lr
     logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
     trainer = pl.Trainer(
         default_root=hparams.folder,
@@ -43,6 +50,7 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
         gpus=hparams.gpus,
         logger=logger,
         resume_from_checkpoint=checkpoint,
+        callbacks=[LearningRateLogger()],
     )
     trainer.fit(model)
 

@@ -63,12 +63,13 @@ class Model(pl.LightningModule):
             vocab_size=hparams.vocab_size,
             n_positions=hparams.max_length,
             n_ctx=hparams.max_length,
-            n_embd=512,
-            n_layer=4,
-            n_head=1,
+            n_embd=hparams.n_embd,
+            n_layer=hparams.n_layer,
+            n_head=hparams.n_head,
             resid_pdrop=0,
             embd_pdrop=0,
             attn_pdrop=0,
+            summary_first_dropout=0,
         )
         return GPT2LMHeadModel(config)
 
