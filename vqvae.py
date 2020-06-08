@@ -1,7 +1,7 @@
 # Credits to:
 # - https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb
 # - the above notebook is itself is based on SONNET from deepmind
-
+from collections import namedtuple
 import yaml
 import os
 from functools import partial
@@ -213,8 +213,9 @@ class Decoder(nn.Module):
         num_residual_hiddens,
         nb_upsample_blocks=2,
         out_channels=3,
+        upsample_method="convtranspose2d",
     ):
-        super(Decoder, self).__init__()
+        super().__init__()
         self._conv_1 = nn.Conv2d(
             in_channels=in_channels,
             out_channels=num_hiddens,
@@ -232,17 +233,37 @@ class Decoder(nn.Module):
         for i in range(nb_upsample_blocks):
             last = i == nb_upsample_blocks - 1
             out = out_channels if last else num_hiddens
-            layers.append(
-                nn.ConvTranspose2d(
-                    in_channels=num_hiddens,
-                    out_channels=out,
-                    kernel_size=4,
-                    stride=2,
-                    padding=1,
+            if upsample_method == "convtranspose2d":
+                layers.append(
+                    nn.ConvTranspose2d(
+                        in_channels=num_hiddens,
+                        out_channels=out,
+                        kernel_size=4,
+                        stride=2,
+                        padding=1,
+                    )
                 )
-            )
+            elif upsample_method in ("bilinear", "nearest"):
+                #avoid checkerboard artifacts
+                layers.append(
+                    nn.Upsample(
+                        scale_factor=2, 
+                        mode=upsample_method, 
+                    )
+                )
+                layers.append(
+                    nn.Conv2d(
+                        in_channels=num_hiddens,
+                        out_channels=out,
+                        kernel_size=3,
+                        stride=1,
+                        padding=1,
+                    )
+                )
+            else:
+                raise ValueError(upsample_method)
             if not last:
-                layers.append(nn.InstanceNorm2d(num_hiddens))
+                layers.append(nn.InstanceNorm2d(out))
                 layers.append(nn.ReLU(True))
         self.upsample = nn.Sequential(*layers)
 
@@ -264,6 +285,7 @@ class VQVAE(nn.Module):
         decay=0.99,
         nb_channels=3,
         nb_blocks=2,
+        upsample_method="convtranspose2d",
     ):
         super().__init__()
         self._encoder = Encoder(
@@ -291,6 +313,7 @@ class VQVAE(nn.Module):
             num_residual_hiddens,
             out_channels=nb_channels,
             nb_upsample_blocks=nb_blocks,
+            upsample_method=upsample_method,
         )
 
     def forward(self, x):
@@ -333,6 +356,7 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
+        self.perceptual_loss = Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
 
     def load_dataset(self, hparams):
         dataset = load_dataset(
@@ -365,12 +389,15 @@ class Model(pl.LightningModule):
             decay=hparams.decay,
             nb_channels=hparams.nb_channels,
             nb_blocks=int(math.log2(hparams.stride)),
+            upsample_method=hparams.upsample_method,
         )
 
     def training_step(self, batch, batch_idx):
         X, _ = batch
         commit_loss, XR, perplexity = self.model(X)
         recons_loss = F.mse_loss(X, XR)
+        if self.perceptual_loss:
+            recons_loss += self.perceptual_loss(X, XR)
         loss = recons_loss + commit_loss
         output = OrderedDict(
             {
@@ -422,10 +449,53 @@ class Model(pl.LightningModule):
         nrow = int(math.sqrt(len(X)))
         X_grid = torchvision.utils.make_grid(X, nrow=nrow)
         XR_grid = torchvision.utils.make_grid(XR, nrow=nrow)
-        self.logger.experiment.add_image("inputs", X_grid, self.current_epoch)
-        self.logger.experiment.add_image("reconstructions", XR_grid, self.current_epoch)
-
         grid = torch.cat((X_grid, XR_grid), dim=2)
         torchvision.utils.save_image(
             grid, os.path.join(self.hparams.folder, f"{split}_rec.png")
         )
+
+
+
+class Vgg(torch.nn.Module):
+    #From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
+    def __init__(self, name="vgg16"):
+        super().__init__()
+        cls = getattr(torchvision.models, name)
+        vgg_pretrained_features = cls(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        for param in self.parameters():
+            param.requires_grad = False
+        mean = (torch.tensor([0.485, 0.456, 0.406]).view(1,3,1,1))
+        std = (torch.tensor([0.229, 0.224, 0.225]).view(1,3,1,1))
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+
+    def features(self, X):
+        X = (X - self.mean) / self.std
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
+        return out
+
+    def forward(self, x, y):
+        fx = self.features(x)
+        fy = self.features(y)
+        return F.mse_loss(fx.relu1_2, fy.relu1_2)

@@ -1,8 +1,8 @@
+import math
 from argparse import Namespace
 import yaml
 import os
 from clize import run
-
 
 import torch
 import torchvision
@@ -11,7 +11,9 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import LearningRateLogger
 
 from vqvae import Model as VQVAE
-from generator import Model as Generator
+
+from ae_generator import Model as AeGenerator
+from transformer_generator import Model as TransformerGenerator
 
 
 def train_vqvae(hparams_path):
@@ -29,10 +31,6 @@ def train_vqvae(hparams_path):
     trainer.fit(model)
 
 
-def load_hparams(path):
-    return Namespace(**yaml.load(open(path).read()))
-
-
 def train_transformer_generator(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
     model = Generator(hparams)
@@ -40,8 +38,24 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
     if hparams.lr == 0:
         lr_finder = trainer.lr_find(model, num_training=20)
         new_lr = lr_finder.suggestion()
-        print(new_lr)
+        print("Best LR: ", new_lr)
         model.hparams.lr = new_lr
+    logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
+    trainer = pl.Trainer(
+        default_root=hparams.folder,
+        max_epochs=hparams.epochs,
+        show_progress_bar=False,
+        gpus=hparams.gpus,
+        logger=logger,
+        resume_from_checkpoint=checkpoint,
+        callbacks=[LearningRateLogger()],
+    )
+    trainer.fit(model)
+
+def train_ae_generator(hparams_path, *, checkpoint=None):
+    hparams = load_hparams(hparams_path)
+    model = AeGenerator(hparams)
+    trainer = pl.Trainer()
     logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
     trainer = pl.Trainer(
         default_root=hparams.folder,
@@ -65,10 +79,39 @@ def generate(
     vqvae = vqvae.to(device)
     gen.eval()
     vqvae.eval()
-    codes = gen.generate(nb_examples, do_sample=True, temperature=temperature,)
+    codes = gen.generate(
+        nb_examples, 
+        do_sample=True, 
+        temperature=temperature,
+        top_k=0,
+    )
     images = vqvae.model.reconstruct_from_code(codes)
-    torchvision.utils.save_image(images, out)
+    nrow = int(math.sqrt(len(codes)))
+    if (nrow**2) != len(codes):
+        nrow = 8
+    torchvision.utils.save_image(images, out, nrow=nrow)
+
+@torch.no_grad()
+def reconstruct(
+    model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.
+):
+    vqvae = VQVAE.load_from_checkpoint(model_path)
+    vqvae = vqvae.to(device)
+    vqvae.eval()
+    X, _ = next(iter(vqvae.train_dataloader()))
+    X = X.to(vqvae.device)
+    commit_loss, XR, perplexity = vqvae.model(X)
+    X = X.data.cpu()
+    XR = XR.data.cpu()
+    nrow = int(math.sqrt(len(X)))
+    X_grid = torchvision.utils.make_grid(X, nrow=nrow)
+    XR_grid = torchvision.utils.make_grid(XR, nrow=nrow)
+    grid = torch.cat((X_grid, XR_grid), dim=2)
+    torchvision.utils.save_image(grid, out)
+
+def load_hparams(path):
+    return Namespace(**yaml.load(open(path).read()))
 
 
 if __name__ == "__main__":
-    run([train_vqvae, train_transformer_generator, generate])
+    run([train_vqvae, train_transformer_generator, generate, reconstruct, train_ae_generator])
