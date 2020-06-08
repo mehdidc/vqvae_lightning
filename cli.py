@@ -56,7 +56,7 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
 def transformer_generate(
     generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.0
 ):
-    gen = Generator.load_from_checkpoint(generator_model_path, load_dataset=False,)
+    gen = TransformerGenerator.load_from_checkpoint(generator_model_path, load_dataset=False,)
     gen = gen.to(device)
     vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
     vqvae = vqvae.to(device)
