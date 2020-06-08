@@ -244,13 +244,8 @@ class Decoder(nn.Module):
                     )
                 )
             elif upsample_method in ("bilinear", "nearest"):
-                #avoid checkerboard artifacts
-                layers.append(
-                    nn.Upsample(
-                        scale_factor=2, 
-                        mode=upsample_method, 
-                    )
-                )
+                # avoid checkerboard artifacts
+                layers.append(nn.Upsample(scale_factor=2, mode=upsample_method,))
                 layers.append(
                     nn.Conv2d(
                         in_channels=num_hiddens,
@@ -356,7 +351,9 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
-        self.perceptual_loss = Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
+        self.perceptual_loss = (
+            Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
+        )
 
     def load_dataset(self, hparams):
         dataset = load_dataset(
@@ -455,9 +452,8 @@ class Model(pl.LightningModule):
         )
 
 
-
 class Vgg(torch.nn.Module):
-    #From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
+    # From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
     def __init__(self, name="vgg16"):
         super().__init__()
         cls = getattr(torchvision.models, name)
@@ -476,8 +472,8 @@ class Vgg(torch.nn.Module):
             self.slice4.add_module(str(x), vgg_pretrained_features[x])
         for param in self.parameters():
             param.requires_grad = False
-        mean = (torch.tensor([0.485, 0.456, 0.406]).view(1,3,1,1))
-        std = (torch.tensor([0.229, 0.224, 0.225]).view(1,3,1,1))
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
         self.register_buffer("mean", mean)
         self.register_buffer("std", std)
 
@@ -491,7 +487,9 @@ class Vgg(torch.nn.Module):
         h_relu3_3 = h
         h = self.slice4(h)
         h_relu4_3 = h
-        vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        vgg_outputs = namedtuple(
+            "VggOutputs", ["relu1_2", "relu2_2", "relu3_3", "relu4_3"]
+        )
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
 
