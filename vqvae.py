@@ -185,7 +185,7 @@ class Encoder(nn.Module):
             layers.append(nn.ReLU(True))
         self.downsample = nn.Sequential(*layers)
         self._conv = nn.Conv2d(
-            in_channels=num_hiddens,
+            in_channels=num_hiddens if nb_downsample_blocks > 0 else in_channels,
             out_channels=num_hiddens,
             kernel_size=3,
             stride=1,
@@ -265,6 +265,8 @@ class Decoder(nn.Module):
             if not last:
                 layers.append(nn.InstanceNorm2d(out))
                 layers.append(nn.ReLU(True))
+        if nb_upsample_blocks == 0:
+            layers.append(nn.Conv2d(num_hiddens, out_channels, (1,1)))
         self.upsample = nn.Sequential(*layers)
 
     def forward(self, inputs):

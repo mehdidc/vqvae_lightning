@@ -54,17 +54,27 @@ class AE(nn.Module):
         z = self.embed(z)
         x = self._decoder(z)
         return x
-
-    def loss(self, x):
+    
+    def noise_and_forward(self, x):
+        #x:nb,h,w
         with torch.no_grad():
             #nb,h,w,nb_channels
             x_onehot = torch.nn.functional.one_hot(x, num_classes=self.nb_channels)
             x_onehot = x_onehot.float()
-            while torch.rand(1).item() <= self.noise_proba:
+            if self.noise_proba:
+                while torch.rand(1).item() <= self.noise_proba:
+                    self.noise_(x_onehot)
+            else:
                 self.noise_(x_onehot)
             #nb,nb_channels,h,w
             x_onehot = x_onehot.permute(0,3,1,2).contiguous()
         xr = self.forward(x_onehot)
+        return xr
+
+    def loss(self, x):
+        #x:nb,h,w
+        #nb,nb_channels,h,w
+        xr = self.noise_and_forward(x)
         #nb,h,w,nb_channels
         xr = xr.permute(0,2,3,1)
         xr = xr.contiguous()
@@ -72,7 +82,7 @@ class AE(nn.Module):
         xr = xr.view(-1,self.nb_channels)
         #nb*h*w
         x = x.view(-1)
-        return nn.functional.cross_entropy(xr, x)
+        return nn.functional.cross_entropy(xr, x), xr, x
     
     def noise_(self, x_onehot):
         #shape: (nb,h,w,self.nb_channels)
@@ -94,15 +104,21 @@ class AE(nn.Module):
             x_onehot[drop_mask] = rand[drop_mask]
             x_onehot = x_onehot.view(shape)
             return x_onehot
+        elif self.noise_type == None:
+            pass
         else:
             raise ValueError(self.noise_type)
 
 class Model(pl.LightningModule):
-    def __init__(self, hparams, load_dataset=True):
+    def __init__(self, hparams, load_dataset=True, nb_examples=None):
         super().__init__()
         if load_dataset:
+            if nb_examples is not None:
+                hparams.nb_examples = nb_examples
             self.dataset = self.load_dataset(hparams)
             hparams.nb_channels = self.dataset.nb_channels
+            hparams.height = self.dataset.height
+            hparams.width = self.dataset.width
         self.model = self.build_model(hparams)
         self.hparams = hparams
 
@@ -125,6 +141,8 @@ class Model(pl.LightningModule):
             codes = codes[:hparams.nb_examples]
         dataset = TensorDataset(codes)
         dataset.nb_channels = vqvae.model.num_embeddings
+        dataset.height = codes.shape[1]
+        dataset.width = codes.shape[2]
         print("Done loading dataset")
         return dataset
 
@@ -140,14 +158,17 @@ class Model(pl.LightningModule):
             nb_channels=hparams.nb_channels,
             nb_blocks=int(math.log2(hparams.stride)),
             upsample_method=hparams.upsample_method,
+            noise_proba=hparams.noise_proba,
             noise_type=hparams.noise_type,
             noise_level=hparams.noise_level,
         )
 
     def training_step(self, batch, batch_idx):
         (X,) = batch
-        loss = self.model.loss(X)
-        output = OrderedDict({"loss": loss, "log": {"loss": loss,},})
+        loss, xr_flat, x_flat = self.model.loss(X)
+        _, xr_ind = xr_flat.max(dim=1)
+        acc = (x_flat==xr_ind).float().mean()
+        output = OrderedDict({"loss": loss, "acc": acc, "log": {"loss": loss, "acc": acc},})
         return output
 
     def train_dataloader(self):
@@ -168,6 +189,21 @@ class Model(pl.LightningModule):
             optimizer, gamma=self.hparams.scheduler_gamma
         )
         return [optimizer], [scheduler]
+    
+    @torch.no_grad()
+    def generate(self, nb_examples, nb_iter=10, init_from="random"):
+        if init_from == "random":
+            codes = torch.randint(0, self.hparams.nb_channels, size=(nb_examples, self.hparams.height, self.hparams.width))
+        elif init_from == "dataset":
+            dataloader = self.train_dataloader()
+            codes, = next(iter(dataloader))
+            codes = codes[:nb_examples]
+        else:
+            raise ValueError(init_from)
+        for _ in range(nb_iter):
+            codes = self.model.noise_and_forward(codes)
+            _, codes = codes.max(dim=1)
+        return codes
 
 if __name__ == "__main__":
     model = Model(hparams)

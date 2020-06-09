@@ -70,10 +70,10 @@ def train_ae_generator(hparams_path, *, checkpoint=None):
 
 
 @torch.no_grad()
-def generate(
+def transformer_generate(
     generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.
 ):
-    gen = Generator.load_from_checkpoint(generator_model_path, load_dataset=False,)
+    gen = TransformerGenerator.load_from_checkpoint(generator_model_path, load_dataset=False,)
     gen = gen.to(device)
     vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
     vqvae = vqvae.to(device)
@@ -85,6 +85,28 @@ def generate(
         temperature=temperature,
         top_k=0,
     )
+    images = vqvae.model.reconstruct_from_code(codes)
+    nrow = int(math.sqrt(len(codes)))
+    if (nrow**2) != len(codes):
+        nrow = 8
+    torchvision.utils.save_image(images, out, nrow=nrow)
+
+@torch.no_grad()
+def ae_generate(
+    generator_model_path, *, device="cpu", nb_examples=1, nb_iter=10, out="out.png", init_from="random",
+):
+    load_dataset = True if init_from == "dataset" else False
+    gen = AeGenerator.load_from_checkpoint(
+        generator_model_path, 
+        load_dataset=load_dataset,
+        nb_examples=nb_examples,
+    )
+    gen = gen.to(device)
+    vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
+    vqvae = vqvae.to(device)
+    gen.eval()
+    vqvae.eval()
+    codes = gen.generate(nb_examples, nb_iter, init_from=init_from)
     images = vqvae.model.reconstruct_from_code(codes)
     nrow = int(math.sqrt(len(codes)))
     if (nrow**2) != len(codes):
@@ -114,4 +136,4 @@ def load_hparams(path):
 
 
 if __name__ == "__main__":
-    run([train_vqvae, train_transformer_generator, generate, reconstruct, train_ae_generator])
+    run([train_vqvae, train_transformer_generator, transformer_generate, reconstruct, train_ae_generator, ae_generate])
