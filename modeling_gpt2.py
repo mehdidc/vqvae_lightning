@@ -122,8 +122,14 @@ class Attention(nn.Module):
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
         self.pruned_heads = set()
-        self.K = nn.Parameter(torch.randn(n_ctx, K))
-        self.V = nn.Parameter(torch.randn(n_ctx, K))
+
+        m = torch.randn(n_ctx, K)
+        nn.init.xavier_uniform_(m)
+        self.K = nn.Parameter(m)
+        
+        m = torch.randn(n_ctx, K)
+        nn.init.xavier_uniform_(m)
+        self.V = nn.Parameter(m)
 
     def prune_heads(self, heads):
         if len(heads) == 0:
@@ -146,8 +152,8 @@ class Attention(nn.Module):
     
         k = torch.matmul(k, self.K)
         w = torch.matmul(q, k)
-        # if self.scale:
-            # w = w / (float(v.size(-1)) ** 0.5)
+        if self.scale:
+            w = w / (float(v.size(-1)) ** 0.5)
         # nd, ns = w.size(-2), w.size(-1)
         # mask = self.bias[:, :, ns - nd : ns, :ns]
         # w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))

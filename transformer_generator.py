@@ -1,6 +1,7 @@
 from functools import reduce
 from collections import OrderedDict
-from transformers import GPT2LMHeadModel, GPT2Config
+from modeling_gpt2 import GPT2LMHeadModel
+from transformers import GPT2Config
 
 import torch.optim.lr_scheduler as lr_scheduler
 import pytorch_lightning as pl
@@ -70,6 +71,7 @@ class Model(pl.LightningModule):
             embd_pdrop=0,
             attn_pdrop=0,
             summary_first_dropout=0,
+            K=hparams.K
         )
         return GPT2LMHeadModel(config)
 
