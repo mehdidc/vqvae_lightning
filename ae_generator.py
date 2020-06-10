@@ -16,34 +16,36 @@ class AE(nn.Module):
     def __init__(
         self,
         num_hiddens=128,
-        num_residual_layers=2,
-        num_residual_hiddens=32,
+        num_layers=2,
         embedding_dim=64,
         nb_channels=512,
         nb_blocks=2,
-        upsample_method="convtranspose2d",
         noise_proba=0.3,
         noise_type="dropout",
         noise_level=0.1,
     ):
         super().__init__()
-        self._encoder = Encoder(
-            nb_channels,
-            num_hiddens,
-            num_residual_layers,
-            num_residual_hiddens,
-            nb_downsample_blocks=nb_blocks,
+        self._encoder = conv_layers(
+            in_channels=nb_channels,
+            feature_map=num_hiddens,
+            out_channels=num_hiddens,
+            nb_layers=num_layers,
+            cls=nn.Conv2d,
+            kernel_size=5,
+            # feature_map_mult=0.5,
         )
         self.embed = nn.Conv2d(num_hiddens, embedding_dim, (1,1), stride=1)
-        self._decoder = Decoder(
-            embedding_dim,
-            num_hiddens,
-            num_residual_layers,
-            num_residual_hiddens,
+        self._decoder = conv_layers(
+            in_channels=embedding_dim,
             out_channels=nb_channels,
-            nb_upsample_blocks=nb_blocks,
-            upsample_method=upsample_method,
+            feature_map=num_hiddens,
+            nb_layers=num_layers,
+            cls=nn.ConvTranspose2d,
+            kernel_size=5,
+            # feature_map_mult=2,
         )
+        print(self._encoder)
+        print(self._decoder)
         self.nb_channels = nb_channels
         self.noise_proba = noise_proba
         self.noise_type = noise_type
@@ -52,6 +54,7 @@ class AE(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self.embed(z)
+        z = spatial_sparsity(z)
         x = self._decoder(z)
         return x
     
@@ -61,11 +64,7 @@ class AE(nn.Module):
             #nb,h,w,nb_channels
             x_onehot = torch.nn.functional.one_hot(x, num_classes=self.nb_channels)
             x_onehot = x_onehot.float()
-            if self.noise_proba:
-                while torch.rand(1).item() <= self.noise_proba:
-                    self.noise_(x_onehot)
-            else:
-                self.noise_(x_onehot)
+            x_onehot = self.noise_(x_onehot)
             #nb,nb_channels,h,w
             x_onehot = x_onehot.permute(0,3,1,2).contiguous()
         xr = self.forward(x_onehot)
@@ -105,9 +104,40 @@ class AE(nn.Module):
             x_onehot = x_onehot.view(shape)
             return x_onehot
         elif self.noise_type == None:
-            pass
+            return x_onehot
         else:
             raise ValueError(self.noise_type)
+
+
+
+def conv_layers(
+    in_channels=3,
+    out_channels=128,
+    feature_map=64,
+    feature_map_mult=1,
+    norm_layer=None,
+    act=nn.ReLU(True),
+    nb_layers=1,
+    kernel_size=5,
+    padding=0,
+    cls=nn.Conv2d,
+):
+    fms = (
+        [in_channels]
+        + [int(feature_map * (feature_map_mult ** i)) for i in range(nb_layers - 1)]
+        + [out_channels]
+    )
+    layers = []
+    bias = False if norm_layer == nn.BatchNorm2d else True
+    for i, (prev, cur) in enumerate(zip(fms[0:-1], fms[1:])):
+        layer = cls(prev, cur, kernel_size=kernel_size, padding=padding, bias=bias)
+        layers.append(layer)
+        if i< len(fms) - 2:
+            if norm_layer:
+                layers.append(norm_layer(cur))
+            layers.append(act)
+    return nn.Sequential(*layers)
+
 
 class Model(pl.LightningModule):
     def __init__(self, hparams, load_dataset=True, nb_examples=None):
@@ -152,12 +182,9 @@ class Model(pl.LightningModule):
     def build_model(self, hparams):
         return AE(
             num_hiddens=hparams.num_hiddens,
-            num_residual_layers=hparams.num_residual_layers,
-            num_residual_hiddens=hparams.num_residual_hiddens,
+            num_layers=hparams.num_layers,
             embedding_dim=hparams.embedding_dim,
             nb_channels=hparams.nb_channels,
-            nb_blocks=int(math.log2(hparams.stride)),
-            upsample_method=hparams.upsample_method,
             noise_proba=hparams.noise_proba,
             noise_type=hparams.noise_type,
             noise_level=hparams.noise_level,
@@ -167,7 +194,8 @@ class Model(pl.LightningModule):
         (X,) = batch
         loss, xr_flat, x_flat = self.model.loss(X)
         _, xr_ind = xr_flat.max(dim=1)
-        acc = (x_flat==xr_ind).float().mean()
+        m = x_flat!=-100
+        acc = (x_flat[m]==xr_ind[m]).float().mean()
         output = OrderedDict({"loss": loss, "acc": acc, "log": {"loss": loss, "acc": acc},})
         return output
 
@@ -200,10 +228,35 @@ class Model(pl.LightningModule):
             codes = codes[:nb_examples]
         else:
             raise ValueError(init_from)
+        iters = [codes]
         for _ in range(nb_iter):
             codes = self.model.noise_and_forward(codes)
             _, codes = codes.max(dim=1)
+            iters.append(codes)
+        codes = torch.cat(iters)
         return codes
+
+
+def spatial_sparsity(x):
+    xf = x.view(x.size(0), x.size(1), -1)
+    m, _ = xf.max(2)
+    m = m.view(m.size(0), m.size(1), 1)
+    m = m.repeat(1, 1, xf.size(2))
+    xf = xf * (xf == m).float()
+    xf = xf.view(x.size())
+    return xf
+
+
+def channel_sparsity(x):
+    xf = x.view(x.size(0), x.size(1), -1)
+    m, _ = xf.max(1)
+    m = m.view(m.size(0), 1, m.size(1))
+    m = m.repeat(1, xf.size(1), 1)
+    xf = xf * (xf == m).float()
+    xf = xf.view(x.size())
+    return xf
+
+
 
 if __name__ == "__main__":
     model = Model(hparams)

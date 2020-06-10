@@ -33,7 +33,7 @@ def train_vqvae(hparams_path):
 
 def train_transformer_generator(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
-    model = Generator(hparams)
+    model = TransformerGenerator(hparams)
     trainer = pl.Trainer()
     if hparams.lr == 0:
         lr_finder = trainer.lr_find(model, num_training=20)
