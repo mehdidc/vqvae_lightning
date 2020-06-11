@@ -13,7 +13,7 @@ from pytorch_lightning.callbacks import LearningRateLogger
 from vqvae import Model as VQVAE
 
 from transformer_generator import Model as TransformerGenerator
-
+from pixelcnn_generator import Model as PixelCNNGenerator
 
 def train_vqvae(hparams_path):
     hparams = load_hparams(hparams_path)
@@ -89,6 +89,46 @@ def reconstruct(
     torchvision.utils.save_image(grid, out)
 
 
+
+def train_pixelcnn_generator(hparams_path, *, checkpoint=None):
+    hparams = load_hparams(hparams_path)
+    model = PixelCNNGenerator(hparams)
+    trainer = pl.Trainer()
+    if hparams.lr == 0:
+        lr_finder = trainer.lr_find(model, num_training=20)
+        new_lr = lr_finder.suggestion()
+        print("Best LR: ", new_lr)
+        model.hparams.lr = new_lr
+    logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
+    trainer = pl.Trainer(
+        default_root=hparams.folder,
+        max_epochs=hparams.epochs,
+        show_progress_bar=False,
+        gpus=hparams.gpus,
+        logger=logger,
+        resume_from_checkpoint=checkpoint,
+        callbacks=[LearningRateLogger()],
+    )
+    trainer.fit(model)
+
+@torch.no_grad()
+def pixelcnn_generate(
+    generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.0
+):
+    gen = PixelCNNGenerator.load_from_checkpoint(generator_model_path, load_dataset=False,)
+    gen = gen.to(device)
+    vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
+    vqvae = vqvae.to(device)
+    gen.eval()
+    vqvae.eval()
+    codes = gen.generate(nb_examples, temperature=temperature)
+    images = vqvae.model.reconstruct_from_code(codes)
+    nrow = int(math.sqrt(len(codes)))
+    if (nrow ** 2) != len(codes):
+        nrow = 8
+    torchvision.utils.save_image(images, out, nrow=nrow)
+
+
 def load_hparams(path):
     return Namespace(**yaml.load(open(path).read()))
 
@@ -98,5 +138,7 @@ if __name__ == "__main__":
         train_vqvae, 
         train_transformer_generator, 
         transformer_generate, 
+        train_pixelcnn_generator,
+        pixelcnn_generate,
         reconstruct
     ])
