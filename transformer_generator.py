@@ -1,6 +1,7 @@
 from functools import reduce
 from collections import OrderedDict
 from transformers import GPT2LMHeadModel, GPT2Config
+from unittest.mock import patch
 
 import torch.optim.lr_scheduler as lr_scheduler
 import pytorch_lightning as pl
@@ -75,9 +76,13 @@ class Model(pl.LightningModule):
 
     def generate(self, nb_examples=1, **kwargs):
         input_ids = torch.zeros(nb_examples, 1).long().to(self.device)
-        input_ids[:] = self.hparams.vocab_size - 1
-        result = self.model.generate(
-            input_ids, max_length=self.hparams.max_length, **kwargs,
+        input_ids[:] = self.hparams.start_token
+        result = _generate(
+            self.model, 
+            forbid=[self.hparams.start_token],
+            input_ids=input_ids, 
+            max_length=self.hparams.max_length, 
+            **kwargs,
         )
         result = result[:, 1:]
         result = result.contiguous()
@@ -108,3 +113,15 @@ class Model(pl.LightningModule):
             optimizer, gamma=self.hparams.scheduler_gamma
         )
         return [optimizer], [scheduler]
+
+def _generate(model, forbid, *args, **kwargs):
+    orig = model.forward
+    def fwd(*args, **kwargs):
+        y, *rest = orig(*args, **kwargs)
+        for ind in forbid:
+            y[:,:,ind] = -1e7
+        return (y,) + tuple(rest)
+    model.forward = fwd
+    y = model.generate(*args, **kwargs)
+    model.forward = orig
+    return y
