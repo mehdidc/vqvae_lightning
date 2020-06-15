@@ -1,8 +1,3 @@
-# Copyright (c) Xi Chen
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
 # Credits to https://raw.githubusercontent.com/rosinality/vq-vae-2-pytorch/master/pixelsnail.py
 
 from math import sqrt
@@ -54,6 +49,7 @@ class Model(pl.LightningModule):
         dataset = TensorDataset(codes)
         dataset.nb_channels = vqvae.model.num_embeddings
         dataset.shape = codes.shape
+        dataaset.vqvae = vqvae
         print("Done loading dataset")
         return dataset
 
@@ -114,6 +110,16 @@ class Model(pl.LightningModule):
             optimizer, gamma=self.hparams.scheduler_gamma
         )
         return [optimizer], [scheduler]
+    
+    def on_epoch_end(self):
+        codes = self.generate(nb_examples=9)
+        images = self.dataset.vqvae.model.reconstruct_from_code(codes)
+        nrow = int(math.sqrt(len(codes)))
+        if (nrow ** 2) != len(codes):
+            nrow = 8
+        out = os.path.join(self.hparams.folder, "gen.png")
+        torchvision.utils.save_image(images, out, nrow=nrow)
+
 
 def wn_linear(in_dim, out_dim):
     return nn.utils.weight_norm(nn.Linear(in_dim, out_dim))
