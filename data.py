@@ -3,6 +3,8 @@ import os
 import numpy as np
 from skimage.transform import resize
 from glob import glob
+from PIL import Image
+import io
 
 import torch.nn as nn
 import torch
@@ -36,9 +38,9 @@ def load_dataset(
     image_size=32,
     crop_size=None,
     random_crop_size=None,
-    cls=ImageFolder,
     nb_channels=3,
     invert=False,
+    dataset_type="image_folder",
 ):
     if dataset_name == "mnist":
         dataset = MNIST(
@@ -53,6 +55,12 @@ def load_dataset(
         dataset = QuickDrawDataset(dataset_name)
         return dataset
     else:
+        if dataset_type == "image_folder":
+            cls = ImageFolder
+        elif dataset_type == "lmdb":
+            cls = LMDB
+        else:
+            raise ValueError(dataset_type)
         tfs = []
         if crop_size is not None:
             tfs.append(transforms.CenterCrop(crop_size))
@@ -67,6 +75,37 @@ def load_dataset(
         dataset = cls(root=dataset_name, transform=transforms.Compose(tfs))
         return dataset
 
+class LMDB:
+
+    
+    def __init__(self, root, transform=None, target_transform=None):
+        import lmdb
+        #https://github.com/pytorch/vision/blob/master/torchvision/datasets/lsun.py
+        self.env = lmdb.open(root, max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+        with self.env.begin(write=False) as txn:
+            self.nb = int(txn.get("nb".encode()))
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __getitem__(self, i):
+        with self.env.begin(write=False) as txn:
+            xkey = f"image-{i}".encode()
+            ykey = f"labelint-{i}".encode()
+            target = txn.get(ykey)
+            # assert target, (ykey, target)
+            imgbuf = txn.get(xkey)
+        buf = io.BytesIO()
+        buf.write(imgbuf)
+        buf.seek(0)
+        img = Image.open(buf).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return img, target
+
+    def __len__(self):
+        return self.nb
 
 class QuickDrawDataset:
     def __init__(self, path):

@@ -360,6 +360,7 @@ class Model(pl.LightningModule):
             hparams.train_dataset_folder,
             image_size=hparams.image_size,
             nb_channels=hparams.nb_channels,
+            dataset_type=hparams.dataset_type,
         )
         if hparams.nb_examples is not None:
             dataset = Shuffle(dataset)
