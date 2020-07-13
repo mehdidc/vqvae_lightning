@@ -90,8 +90,9 @@ class LMDB:
     def __getitem__(self, i):
         with self.env.begin(write=False) as txn:
             xkey = f"image-{i}".encode()
-            ykey = f"labelint-{i}".encode()
+            ykey = f"labelstr-{i}".encode()
             target = txn.get(ykey)
+            target = target.decode()
             # assert target, (ykey, target)
             imgbuf = txn.get(xkey)
         buf = io.BytesIO()

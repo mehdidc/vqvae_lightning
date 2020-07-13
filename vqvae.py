@@ -409,11 +409,11 @@ class Model(pl.LightningModule):
         )
         return output
 
-    def train_dataloader(self):
+    def train_dataloader(self, shuffle=False):
         return torch.utils.data.DataLoader(
             self.dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             num_workers=self.hparams.num_workers,
         )
 
@@ -429,6 +429,8 @@ class Model(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def on_epoch_end(self):
+        folder = self.hparams.folder
+        self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
         self.save_grids("train")
 
     def save_grids(self, split):

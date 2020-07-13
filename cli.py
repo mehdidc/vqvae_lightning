@@ -27,6 +27,7 @@ def train_vqvae(hparams_path):
         gpus=hparams.gpus,
         logger=logger,
     )
+    model.trainer = trainer
     trainer.fit(model)
 
 
@@ -49,6 +50,7 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
         resume_from_checkpoint=checkpoint,
         callbacks=[LearningRateLogger()],
     )
+    model.trainer = trainer
     trainer.fit(model)
 
 
@@ -56,13 +58,21 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
 def transformer_generate(
     generator_model_path, *, device="cpu", nb_examples=1, out="out.png", temperature=1.0
 ):
-    gen = TransformerGenerator.load_from_checkpoint(generator_model_path, load_dataset=False,)
+    gen = TransformerGenerator.load_from_checkpoint(
+        generator_model_path, 
+        load_dataset=True,
+    )
     gen = gen.to(device)
+    gen.eval()
+    
     vqvae = VQVAE.load_from_checkpoint(gen.hparams.vqvae_model_path)
     vqvae = vqvae.to(device)
-    gen.eval()
     vqvae.eval()
-    codes = gen.generate(nb_examples, do_sample=True, temperature=temperature, top_k=0,)
+    X, Y = gen.dataset[0]
+    X = X.unsqueeze(0)
+    Y = Y.unsqueeze(0)
+    Y = Y.to(device)
+    codes = gen.generate(Y)
     images = vqvae.model.reconstruct_from_code(codes)
     nrow = int(math.sqrt(len(codes)))
     if (nrow ** 2) != len(codes):
@@ -77,7 +87,7 @@ def reconstruct(
     vqvae = VQVAE.load_from_checkpoint(model_path)
     vqvae = vqvae.to(device)
     vqvae.eval()
-    X, _ = next(iter(vqvae.train_dataloader()))
+    X, _ = next(iter(vqvae.train_dataloader(shuffle=False)))
     X = X.to(vqvae.device)
     commit_loss, XR, perplexity = vqvae.model(X)
     X = X.data.cpu()
