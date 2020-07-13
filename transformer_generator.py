@@ -1,6 +1,6 @@
 from functools import reduce
 from collections import OrderedDict
-
+from copy import deepcopy
 
 from unittest.mock import patch
 import os
@@ -40,42 +40,51 @@ class Model(pl.LightningModule):
         vqvae = vqvae.to(device)
         self.vqvae = vqvae
         nb = 0
-        max_length = 0
-        for X, Y in vqvae.train_dataloader(shuffle=False):
-            Y = list(Y)
-            Y = self.tokenizer.batch_encode_plus(Y)
-            Y = Y["input_ids"]
-            max_length = max(max_length, max(map(len, Y)))
-            if hparams.nb_examples and nb >= hparams.nb_examples:
-                break
-            nb += len(Y)
-        nb = 0
-        print("MAX LENGTH:", max_length)
-        conds = []
-        codes = []
-        for X, Y in vqvae.train_dataloader(shuffle=False):
-            X = X.to(device)
-            Y = list(Y)
-            Y = self.tokenizer.batch_encode_plus(
-                Y, 
-                padding=True, 
-                pad_to_multiple_of=max_length, 
-                max_length=max_length
-            )
-            Y = Y["input_ids"]
-            Y = torch.Tensor(Y).long()
-            print(Y.shape)
-            conds.append(Y)
-            zinds = vqvae.encode(X)
-            codes.append(zinds.data.cpu())
-            nb += len(zinds)
-            if hparams.nb_examples and nb >= hparams.nb_examples:
-                break
-        conds = torch.cat(conds)
-        codes = torch.cat(codes)
-        if hparams.nb_examples and len(codes) >= hparams.nb_examples:
-            codes = codes[: hparams.nb_examples]
-            conds = conds[: hparams.nb_examples]
+        path = os.path.join(os.path.dirname(hparams.vqvae_model_path), "code_dataset.th")
+        print(path)
+        if os.path.exists(path):
+            conds, codes, max_length = torch.load(path)
+            print("Loaded dataset from cache")
+        else:
+            max_length = 0
+            for X, Y in vqvae.train_dataloader(shuffle=False):
+                Y = list(Y)
+                Y = self.tokenizer.batch_encode_plus(Y)
+                Y = Y["input_ids"]
+                max_length = max(max_length, max(map(len, Y)))
+                if hparams.nb_examples and nb >= hparams.nb_examples:
+                    break
+                nb += len(Y)
+                print(nb)
+            nb = 0
+            print("MAX LENGTH:", max_length)
+            conds = []
+            codes = []
+            for X, Y in vqvae.train_dataloader(shuffle=False):
+                X = X.to(device)
+                Y = list(Y)
+                Y = self.tokenizer.batch_encode_plus(
+                    Y, 
+                    padding=True, 
+                    pad_to_multiple_of=max_length, 
+                    max_length=max_length
+                )
+                Y = Y["input_ids"]
+                Y = torch.Tensor(Y).long()
+                conds.append(Y)
+                zinds = vqvae.encode(X)
+                codes.append(zinds.data.cpu())
+                nb += len(zinds)
+                print(nb)
+                if hparams.nb_examples and nb >= hparams.nb_examples:
+                    break
+            conds = torch.cat(conds)
+            codes = torch.cat(codes)
+            if hparams.nb_examples and len(codes) >= hparams.nb_examples:
+                codes = codes[: hparams.nb_examples]
+                conds = conds[: hparams.nb_examples]
+            torch.save((conds, codes, max_length), path)
+
         vocab_size = vqvae.model.num_embeddings + 1#added one because of start token
         start_token = vqvae.model.num_embeddings
         codes_ = codes.view(len(codes), -1)
@@ -113,18 +122,19 @@ class Model(pl.LightningModule):
         return tokenizer
     
     def build_model(self, hparams, tokenizer):
+        path = "decoder"
         decoder_config = BertConfig(
             is_decoder=True,
             vocab_size=hparams.vocab_size,
         )
         decoder = BertLMHeadModel(decoder_config)
-        decoder.save_pretrained("decoder")
+        decoder.save_pretrained(path)
         model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-uncased", "decoder")
         return model
 
     def generate(self, cond):
         result = generate_with_constraints(
-            self.model,
+            deepcopy(self.model).to(cond.device), # necesary for multigpu setting otherwise breaks,
             forbid=[self.hparams.start_token],
             input_ids=cond, 
             decoder_start_token_id=self.hparams.start_token,
@@ -173,7 +183,8 @@ class Model(pl.LightningModule):
         if self.current_epoch % self.hparams.save_every == 0:
             folder = self.hparams.folder
             self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
-            X, Y = next(iter(self.train_dataloader(shuffle=False)))
+
+            X, Y = next(iter(self.train_dataloader(shuffle=True)))
             nb = 9
             X = X[:nb]
             Y = Y[:nb]
@@ -189,7 +200,7 @@ class Model(pl.LightningModule):
             out = os.path.join(self.hparams.folder, "true.png")
             torchvision.utils.save_image(images, out, nrow=nrow)
 
-                
+
             print("Generating..")
             Y = Y.to(self.device)
             codes = self.generate(Y)
@@ -201,37 +212,6 @@ class Model(pl.LightningModule):
                 nrow = 8
             out = os.path.join(self.hparams.folder, "gen.png")
             torchvision.utils.save_image(images, out, nrow=nrow)
-
-@torch.no_grad()
-def generate(
-    encoder,
-    model,
-    cond,
-    forbid=None,
-    max_length=10, 
-    start_token=0,
-    temperature=1.0,
-):
-    device = cond.device
-    nb, source_length = cond.shape
-    target = torch.empty(nb, max_length).long().to(device)
-    target[:, 0] = start_token 
-    _, context_features = encoder(cond)
-    for t in range(1, max_length):
-        outputs = model(
-            input_ids=target[:, 0:t],
-            past=context_features,
-        )
-        target_pred = outputs[0]
-        target_pred = target_pred[:, -1]
-        target_pred /= temperature
-        if forbid is not None:
-            for ind in forbid:
-                target_pred[:,ind] = -1e7
-        target_pred = target_pred.softmax(dim=1)
-        target_sample = torch.multinomial(target_pred, 1)[:, 0]
-        target[:, t] = target_sample
-    return target
 
 def generate_with_constraints(model, forbid, *args, **kwargs):
     orig = model.forward
