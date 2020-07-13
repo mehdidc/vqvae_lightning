@@ -1,0 +1,15 @@
+vqvae_model_path: results/imagenet/vqvae/model.th
+folder: results/imagenet/generator
+epochs: 10000
+lr: 0.0001
+weight_decay: 0
+scheduler_gamma: 1
+batch_size: 32
+num_workers: 0
+gpus: 4
+distributed_backend: dp
+nb_examples: null
+n_layer: 4
+n_embd: 64
+n_head: 1
+save_every: 1
