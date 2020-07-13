@@ -25,6 +25,7 @@ def train_vqvae(hparams_path):
         max_epochs=hparams.epochs,
         show_progress_bar=False,
         gpus=hparams.gpus,
+        distributed_backend=hparams.distributed_backend,
         logger=logger,
     )
     model.trainer = trainer
@@ -46,6 +47,7 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
         max_epochs=hparams.epochs,
         show_progress_bar=False,
         gpus=hparams.gpus,
+        distributed_backend=hparams.distributed_backend,
         logger=logger,
         resume_from_checkpoint=checkpoint,
         callbacks=[LearningRateLogger()],

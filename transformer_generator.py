@@ -1,6 +1,7 @@
 from functools import reduce
 from collections import OrderedDict
-from transformers import GPT2LMHeadModel, GPT2Config, GPT2Model, GPT2Tokenizer
+
+
 from unittest.mock import patch
 import os
 import math
@@ -13,6 +14,9 @@ from torch import optim
 import torchvision
 
 from vqvae import Model as VQVAE
+
+from transformers import BertConfig, EncoderDecoderConfig, EncoderDecoderModel, BertLMHeadModel
+from transformers import EncoderDecoderModel, BertTokenizer
 
 
 class Model(pl.LightningModule):
@@ -27,7 +31,6 @@ class Model(pl.LightningModule):
             hparams.start_token = self.dataset.start_token
             hparams.encoder_max_length = self.dataset.encoder_max_length
         self.model = self.build_model(hparams, self.tokenizer)
-        self.encoder = self.build_encoder_pretrained(hparams, self.tokenizer)
         self.hparams = hparams
 
     def load_dataset(self, hparams):
@@ -73,7 +76,7 @@ class Model(pl.LightningModule):
         if hparams.nb_examples and len(codes) >= hparams.nb_examples:
             codes = codes[: hparams.nb_examples]
             conds = conds[: hparams.nb_examples]
-        vocab_size = vqvae.model.num_embeddings + 1
+        vocab_size = vqvae.model.num_embeddings + 1#added one because of start token
         start_token = vqvae.model.num_embeddings
         codes_ = codes.view(len(codes), -1)
         codes_ = torch.cat(
@@ -93,50 +96,6 @@ class Model(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
     
-    def build_tokenizer(self):
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        tokenizer.add_special_tokens({"cls_token": "<CLS>", "pad_token": "<PAD>", "eos_token": "<EOS>"})
-        return tokenizer
-
-    def build_encoder_pretrained(self, hparams, tokenizer):
-        model = GPT2LMHeadModel.from_pretrained("gpt2")
-        model.resize_token_embeddings(tokenizer.vocab_size + 3)
-        model.tokenizer = tokenizer
-        return model
-    
-    def build_encoder(self, hparams, tokenizer):
-        config = GPT2Config(
-            vocab_size=tokenizer.vocab_size+3,
-            n_positions=hparams.encoder_max_length,
-            n_ctx=hparams.encoder_max_length,
-            n_embd=hparams.n_embd if hasattr(hparams, "n_embd") else 512,
-            n_layer=hparams.n_layer if hasattr(hparams, "n_layer") else 4,
-            n_head=hparams.n_head if hasattr(hparams, "n_head") else 1,
-            resid_pdrop=0,
-            embd_pdrop=0,
-            attn_pdrop=0,
-            summary_first_dropout=0,
-        )
-        model = GPT2LMHeadModel(config)
-        model.tokenizer = tokenizer
-        return model
-
-
-    def build_model(self, hparams, tokenizer):
-        config = GPT2Config(
-            vocab_size=hparams.vocab_size,
-            n_positions=hparams.encoder_max_length+hparams.max_length,
-            n_ctx=hparams.encoder_max_length+hparams.max_length,
-            n_embd=hparams.n_embd if hasattr(hparams, "n_embd") else 512,
-            n_layer=hparams.n_layer if hasattr(hparams, "n_layer") else 4,
-            n_head=hparams.n_head if hasattr(hparams, "n_head") else 1,
-            resid_pdrop=0,
-            embd_pdrop=0,
-            attn_pdrop=0,
-            summary_first_dropout=0,
-        )
-        return GPT2LMHeadModel(config)
-    
     def encode_cond(self, cond):
         Y = self.tokenizer.batch_encode_plus(
             cond, 
@@ -147,28 +106,33 @@ class Model(pl.LightningModule):
         Y = Y["input_ids"]
         Y = torch.Tensor(Y).long()
         return Y
+    
+    def build_tokenizer(self):
+        tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        # tokenizer.add_special_tokens({"cls_token": "<CLS>", "pad_token": "<PAD>", "eos_token": "<EOS>"})
+        return tokenizer
+    
+    def build_model(self, hparams, tokenizer):
+        decoder_config = BertConfig(
+            is_decoder=True,
+            vocab_size=hparams.vocab_size,
+        )
+        decoder = BertLMHeadModel(decoder_config)
+        decoder.save_pretrained("decoder")
+        model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-uncased", "decoder")
+        return model
 
     def generate(self, cond):
-        result = generate(
-            encoder=self.encoder,
-            model=self.model, 
-            cond=cond,
-            max_length=self.hparams.max_length,
-            start_token=self.hparams.start_token,
+        result = generate_with_constraints(
+            self.model,
             forbid=[self.hparams.start_token],
+            input_ids=cond, 
+            decoder_start_token_id=self.hparams.start_token,
+            temperature=1.0,
+            do_sample=True,
+            top_k=0,
+            max_length=self.hparams.max_length,
         )
-        # input_ids = torch.zeros(cond.shape[0], 1).long().to(cond.device)
-        # input_ids[:] = self.hparams.start_token
-        # result = generate_old(
-            # self.model,
-            # forbid=[self.hparams.start_token],
-            # input_ids=input_ids,
-            # max_length=self.hparams.max_length,
-            # temperature=1.0,
-            # do_sample=True,
-            # top_k=0,
-            # encoder_outputs=cond,
-        # )
         result = result[:, 1:]
         result = result.contiguous()
         result = result.view(result.shape[0], self.hparams.height, self.hparams.width)
@@ -176,11 +140,12 @@ class Model(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         X, Y = batch
-        _, context_features = self.encoder(Y)
+        with torch.no_grad():
+            encoder_outputs = self.model.encoder(Y)
         loss, *rest = self.model(
-            input_ids=X, 
-            past=context_features, 
-            labels=X
+            decoder_input_ids=X,
+            labels=X,
+            encoder_outputs=encoder_outputs,
         )
         output = OrderedDict({"loss": loss, "log": {"loss": loss,},})
         return output
@@ -268,7 +233,7 @@ def generate(
         target[:, t] = target_sample
     return target
 
-def generate_old(model, forbid, *args, **kwargs):
+def generate_with_constraints(model, forbid, *args, **kwargs):
     orig = model.forward
     def fwd(*args, **kwargs):
         y, *rest = orig(*args, **kwargs)
