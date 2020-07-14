@@ -15,7 +15,7 @@ from vqvae import Model as VQVAE
 from transformer_generator import Model as TransformerGenerator
 
 
-def train_vqvae(hparams_path):
+def train_vqvae(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
     os.makedirs(hparams.folder, exist_ok=True)
     model = VQVAE(hparams)
@@ -27,6 +27,7 @@ def train_vqvae(hparams_path):
         gpus=hparams.gpus,
         distributed_backend=hparams.distributed_backend,
         logger=logger,
+        resume_from_checkpoint=checkpoint,
     )
     model.trainer = trainer
     trainer.fit(model)

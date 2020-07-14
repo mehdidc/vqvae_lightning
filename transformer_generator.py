@@ -126,6 +126,13 @@ class Model(pl.LightningModule):
         decoder_config = BertConfig(
             is_decoder=True,
             vocab_size=hparams.vocab_size,
+            hidden_size=hparams.hidden_size,
+            num_hidden_layers=hparams.num_hidden_layers,
+            num_attention_heads=hparams.num_attention_heads,
+            intermediate_size=hparams.intermediate_size,
+            hidden_dropout_prob=hparams.hidden_dropout_prob,
+            attention_dropout_prob=hparams.attention_dropout_prob,
+            max_position_embeddings=hparams.max_length,
         )
         decoder = BertLMHeadModel(decoder_config)
         decoder.save_pretrained(path)
