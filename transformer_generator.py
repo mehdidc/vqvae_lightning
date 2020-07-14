@@ -139,15 +139,16 @@ class Model(pl.LightningModule):
         model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-uncased", "decoder")
         return model
 
-    def generate(self, cond):
+    def generate(self, cond, temperature=1.0, do_sample=True, top_k=0, top_p=None):
         result = generate_with_constraints(
             deepcopy(self.model).to(cond.device), # necesary for multigpu setting otherwise breaks,
             forbid=[self.hparams.start_token],
             input_ids=cond, 
             decoder_start_token_id=self.hparams.start_token,
-            temperature=1.0,
-            do_sample=True,
-            top_k=0,
+            temperature=temperature,
+            do_sample=do_sample,
+            top_k=top_k,
+            top_p=top_p,
             max_length=self.hparams.max_length,
         )
         result = result[:, 1:]
