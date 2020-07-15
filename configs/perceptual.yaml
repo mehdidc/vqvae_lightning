@@ -1,0 +1,10 @@
+vqvae_model_path: results/test/model.th
+folder: results/test_perceptual
+batch_size: 128
+num_workers: 4
+weight_decay: 0
+scheduler_gamma: 1
+lr: 0.0005
+epochs: 1000
+gpus: 0
+distributed_backend: dp

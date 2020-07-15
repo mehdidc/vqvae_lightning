@@ -1,0 +1,28 @@
+folder: results/test
+num_hiddens: 128
+num_residual_layers: 2
+num_residual_hiddens: 64
+num_embeddings: 512
+embedding_dim: 64
+commitment_cost: 0.25
+decay: 0.99
+stride: 8
+upsample_method: bilinear
+
+image_size: 64
+nb_channels: 3
+train_dataset_folder: data/oxford-iiit-pet
+dataset_type: image_folder
+nb_examples: 100
+
+batch_size: 128
+num_workers: 4
+weight_decay: 0
+scheduler_gamma: 1
+lr: 0.001
+epochs: 1000
+gpus: 0
+distributed_backend: dp
+
+#perceptual_loss: results/test_perceptual/model.th
+perceptual_loss: null

@@ -13,6 +13,7 @@ from pytorch_lightning.callbacks import LearningRateLogger
 from vqvae import Model as VQVAE
 
 from transformer_generator import Model as TransformerGenerator
+from perceptual import Model as Perceptual 
 
 
 def train_vqvae(hparams_path, *, checkpoint=None):
@@ -28,6 +29,22 @@ def train_vqvae(hparams_path, *, checkpoint=None):
         distributed_backend=hparams.distributed_backend,
         logger=logger,
         resume_from_checkpoint=checkpoint,
+    )
+    model.trainer = trainer
+    trainer.fit(model)
+
+def train_perceptual(hparams_path):
+    hparams = load_hparams(hparams_path)
+    model = Perceptual(hparams)
+    os.makedirs(hparams.folder, exist_ok=True)
+    logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
+    trainer = pl.Trainer(
+        default_root=hparams.folder,
+        max_epochs=hparams.epochs,
+        show_progress_bar=False,
+        gpus=hparams.gpus,
+        distributed_backend=hparams.distributed_backend,
+        logger=logger,
     )
     model.trainer = trainer
     trainer.fit(model)
@@ -173,5 +190,6 @@ if __name__ == "__main__":
         train_vqvae, 
         train_transformer_generator, 
         transformer_generate, 
+        train_perceptual,
         reconstruct
     ])

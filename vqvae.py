@@ -350,9 +350,16 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
-        self.perceptual_loss = (
-            Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
-        )
+
+        if hparams.perceptual_loss:
+            if hparams.perceptual_loss.startswith("vgg"):
+                self.perceptual_loss = Vgg(hparams.perceptual_loss)
+            else:
+                self.perceptual_loss = torch.load(hparams.perceptual_loss)
+                for param in self.perceptual_loss.parameters():
+                    param.requires_grad = False
+        else:
+            self.perceptual_loss = None
 
     def load_dataset(self, hparams):
         dataset = load_dataset(
@@ -394,7 +401,7 @@ class Model(pl.LightningModule):
         commit_loss, XR, perplexity = self.model(X)
         recons_loss = F.mse_loss(X, XR)
         if self.perceptual_loss:
-            recons_loss += self.perceptual_loss(X, XR)
+            recons_loss += self.perceptual_loss.loss(X, XR)
         loss = recons_loss + commit_loss
         output = OrderedDict(
             {
@@ -488,6 +495,9 @@ class Vgg(torch.nn.Module):
         )
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
+    
+    def loss(self, x, y):
+        return self.forward(x, y)
 
     def forward(self, x, y):
         fx = self.features(x)
