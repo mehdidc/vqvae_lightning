@@ -408,7 +408,7 @@ class Model(pl.LightningModule):
         )
         return output
 
-    def train_dataloader(self, shuffle=False):
+    def train_dataloader(self, shuffle=True):
         return torch.utils.data.DataLoader(
             self.dataset,
             batch_size=self.hparams.batch_size,
@@ -433,14 +433,8 @@ class Model(pl.LightningModule):
         self.save_grids("train")
 
     def save_grids(self, split):
-        if split == "train":
-            loader = self.train_dataloader()
-        elif split == "valid":
-            loader = self.valid_dataloader()
-        else:
-            raise ValueError(split)
-
-        X, _ = next(iter(loader))
+        loader = self.train_dataloader(shuffle=False) if split == "train" else self.valid_dataloader(shuffle=False)
+        X, Y = next(iter(loader))
         X = X.to(self.device)
         commit_loss, XR, perplexity = self.model(X)
         X = X.data.cpu()
