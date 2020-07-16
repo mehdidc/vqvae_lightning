@@ -25,7 +25,7 @@ from data import load_dataset
 from data import SubSet
 
 import pytorch_lightning as pl
-
+from srgan import SRResNet
 
 class VectorQuantizerEMA(nn.Module):
     def __init__(
@@ -302,15 +302,16 @@ class VQVAE(nn.Module):
             self._vq_vae = VectorQuantizer(
                 num_embeddings, embedding_dim, commitment_cost
             )
-        self._decoder = Decoder(
-            embedding_dim,
-            num_hiddens,
-            num_residual_layers,
-            num_residual_hiddens,
-            out_channels=nb_channels,
-            nb_upsample_blocks=nb_blocks,
-            upsample_method=upsample_method,
-        )
+        self._decoder = SRResNet(in_channels=embedding_dim, scaling_factor=2**nb_blocks)
+        # self._decoder = Decoder(
+            # embedding_dim,
+            # num_hiddens,
+            # num_residual_layers,
+            # num_residual_hiddens,
+            # out_channels=nb_channels,
+            # nb_upsample_blocks=nb_blocks,
+            # upsample_method=upsample_method,
+        # )
 
     def forward(self, x):
         z = self._encoder(x)
@@ -351,7 +352,7 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
-        self.discr = Discr()
+        self.discr = Resnet()
         self.perceptual_loss = (
             Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
         )
@@ -413,8 +414,8 @@ class Model(pl.LightningModule):
             recons_loss = F.mse_loss(X, XR)
             if self.perceptual_loss:
                 recons_loss += self.perceptual_loss(X, XR)
-            gen_loss = ((self.discr(XR)-1)**2).mean()
-            loss = recons_loss + commit_loss + 0.01*gen_loss
+            gen_loss = 0.01 * ((self.discr(XR)-1)**2).mean()
+            loss = recons_loss + commit_loss + gen_loss
             output = OrderedDict(
                 {
                     "loss": loss,
@@ -459,8 +460,9 @@ class Model(pl.LightningModule):
 
     def on_epoch_end(self):
         folder = self.hparams.folder
-        self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
-        self.save_grids("train")
+        if self.trainer.current_epoch % self.hparams.save_every == 0:
+            self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
+            self.save_grids("train")
 
     def save_grids(self, split):
         loader = self.train_dataloader(shuffle=False) if split == "train" else self.valid_dataloader(shuffle=False)
@@ -477,20 +479,60 @@ class Model(pl.LightningModule):
             grid, os.path.join(self.hparams.folder, f"{split}_rec.png")
         )
 
-class Discr(torch.nn.Module):
+class Resnet(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
         self.base = resnet18()
         self.base.fc = nn.Linear(512, 1)
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-        self.register_buffer("mean", mean)
-        self.register_buffer("std", std)
 
     def forward(self, X):
-        # X = (X - self.mean) / self.std
         return self.base(X)
+
+
+class PatchGAN(nn.Module):
+    """Defines a PatchGAN discriminator"""
+
+    def __init__(self, input_nc=3, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        """Construct a PatchGAN discriminator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+        super().__init__()
+        use_bias = (norm_layer == nn.InstanceNorm2d)
+
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
+
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True)
+        ]
+
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
+        self.model = nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Standard forward."""
+        return self.model(input)
+
 
 class Vgg(torch.nn.Module):
     # From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
@@ -537,3 +579,21 @@ class Vgg(torch.nn.Module):
         fx = self.features(x)
         fy = self.features(y)
         return F.mse_loss(fx.relu1_2, fy.relu1_2)
+
+class ConcatDiscr(nn.Module):
+
+    def __init__(self, models):
+        super().__init__()
+        self.models = nn.ModuleList(models)
+
+    def forward(self, x):
+        ys = [model(x).view(len(x), -1) for model in self.models]
+        y = torch.cat(ys, 1)
+        return y
+
+if __name__ == "__main__":
+    model = PatchGAN(3)
+    x = torch.randn(1,3,256,256)
+    y = model(x)
+    print(y.shape)
+    
