@@ -10,6 +10,7 @@ from collections import OrderedDict
 import math
 from clize import run
 
+from torchvision.models import resnet18
 import torch
 import torch.nn as nn
 from torch import optim
@@ -350,6 +351,7 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
+        self.discr = Discr()
         self.perceptual_loss = (
             Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
         )
@@ -389,24 +391,42 @@ class Model(pl.LightningModule):
             upsample_method=hparams.upsample_method,
         )
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx):
         X, _ = batch
-        commit_loss, XR, perplexity = self.model(X)
-        recons_loss = F.mse_loss(X, XR)
-        if self.perceptual_loss:
-            recons_loss += self.perceptual_loss(X, XR)
-        loss = recons_loss + commit_loss
-        output = OrderedDict(
-            {
-                "loss": loss,
-                "log": {
+        if optimizer_idx == 0:
+            with torch.no_grad():
+                commit_loss, XR, perplexity = self.model(X)
+            t = self.discr(X)
+            f = self.discr(XR)
+            loss = ((t-1)**2).mean() + ((f-0)**2).mean()
+            output = OrderedDict(
+                {
                     "loss": loss,
-                    "commit_loss": commit_loss,
-                    "recons_loss": recons_loss,
-                },
-            }
-        )
-        return output
+                    "log": {
+                        "discr_loss": loss,
+                    },
+                }
+            )
+            return output
+        else:
+            commit_loss, XR, perplexity = self.model(X)
+            recons_loss = F.mse_loss(X, XR)
+            if self.perceptual_loss:
+                recons_loss += self.perceptual_loss(X, XR)
+            gen_loss = ((self.discr(XR)-1)**2).mean()
+            loss = recons_loss + commit_loss + 0.01*gen_loss
+            output = OrderedDict(
+                {
+                    "loss": loss,
+                    "log": {
+                        "loss": loss,
+                        "commit_loss": commit_loss,
+                        "recons_loss": recons_loss,
+                        "gen_loss": gen_loss,
+                    },
+                }
+            )
+            return output
 
     def train_dataloader(self, shuffle=True):
         return torch.utils.data.DataLoader(
@@ -417,15 +437,25 @@ class Model(pl.LightningModule):
         )
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(
-            self.parameters(),
+        gen = optim.Adam(
+            self.model.parameters(),
             lr=self.hparams.lr,
             weight_decay=self.hparams.weight_decay,
+            betas=(0.5, 0.999),
         )
-        scheduler = lr_scheduler.ExponentialLR(
-            optimizer, gamma=self.hparams.scheduler_gamma
+        gen_scheduler = lr_scheduler.ExponentialLR(
+            gen, gamma=self.hparams.scheduler_gamma
         )
-        return [optimizer], [scheduler]
+        discr = optim.Adam(
+            self.discr.parameters(),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.weight_decay,
+            betas=(0.5, 0.999),
+        )
+        discr_scheduler = lr_scheduler.ExponentialLR(
+            discr, gamma=self.hparams.scheduler_gamma
+        )
+        return [discr, gen], [discr_scheduler, gen_scheduler]
 
     def on_epoch_end(self):
         folder = self.hparams.folder
@@ -447,6 +477,20 @@ class Model(pl.LightningModule):
             grid, os.path.join(self.hparams.folder, f"{split}_rec.png")
         )
 
+class Discr(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.base = resnet18()
+        self.base.fc = nn.Linear(512, 1)
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+
+    def forward(self, X):
+        # X = (X - self.mean) / self.std
+        return self.base(X)
 
 class Vgg(torch.nn.Module):
     # From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
