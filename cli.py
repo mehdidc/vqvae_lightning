@@ -21,7 +21,7 @@ def train_vqvae(hparams_path, *, checkpoint=None):
     model = VQVAE(hparams)
     logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
     trainer = pl.Trainer(
-        default_root=hparams.folder,
+        default_root_dir=hparams.folder,
         max_epochs=hparams.epochs,
         show_progress_bar=False,
         gpus=hparams.gpus,
@@ -44,7 +44,7 @@ def train_transformer_generator(hparams_path, *, checkpoint=None):
         model.hparams.lr = new_lr
     logger = pl.loggers.TensorBoardLogger(save_dir=hparams.folder, name="logs")
     trainer = pl.Trainer(
-        default_root=hparams.folder,
+        default_root_dir=hparams.folder,
         max_epochs=hparams.epochs,
         show_progress_bar=False,
         gpus=hparams.gpus,
