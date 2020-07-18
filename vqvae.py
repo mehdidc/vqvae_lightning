@@ -305,16 +305,16 @@ class VQVAE(nn.Module):
             self._vq_vae = VectorQuantizer(
                 num_embeddings, embedding_dim, commitment_cost
             )
-        # self._decoder = SRResNet(in_channels=embedding_dim, scaling_factor=2**nb_blocks)
-        self._decoder = Decoder(
-            embedding_dim,
-            num_hiddens,
-            num_residual_layers,
-            num_residual_hiddens,
-            out_channels=nb_channels,
-            nb_upsample_blocks=nb_blocks,
-            upsample_method=upsample_method,
-        )
+        self._decoder = SRResNet(in_channels=embedding_dim, scaling_factor=2**nb_blocks)
+        # self._decoder = Decoder(
+            # embedding_dim,
+            # num_hiddens,
+            # num_residual_layers,
+            # num_residual_hiddens,
+            # out_channels=nb_channels,
+            # nb_upsample_blocks=nb_blocks,
+            # upsample_method=upsample_method,
+        # )
 
     def forward(self, x):
         z = self._encoder(x)
@@ -419,7 +419,7 @@ class Model(pl.LightningModule):
             if self.perceptual_loss:
                 recons_loss += self.perceptual_loss(X, XR)
             gen_loss = 0.01 * ((self.discr(XR)-1)**2).mean()
-            loss = recons_loss + commit_loss + gen_loss
+            loss = recons_loss + commit_loss + gen_loss*0
             output = OrderedDict(
                 {
                     "loss": loss,
