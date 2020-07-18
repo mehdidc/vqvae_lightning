@@ -4,7 +4,7 @@ num_residual_layers: 2
 num_residual_hiddens: 128
 num_embeddings: 512
 embedding_dim: 128
-commitment_cost: 0.25
+commitment_cost: 1
 decay: 0.99
 stride: 8
 upsample_method: bilinear
@@ -20,7 +20,7 @@ dataset_type: lmdb
 
 nb_examples: 100000
 
-batch_size: 6
+batch_size: 64
 
 num_workers: 10
 weight_decay: 0

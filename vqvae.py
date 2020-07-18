@@ -25,7 +25,7 @@ from data import SubSet
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
-from srgan import SRResNet
+from srgan import SRResNet, Discriminator
 
 class VectorQuantizerEMA(nn.Module):
     def __init__(
@@ -291,6 +291,7 @@ class VQVAE(nn.Module):
             num_residual_hiddens,
             nb_downsample_blocks=nb_blocks,
         )
+        # self._encoder = Discriminator(n_blocks=nb_blocks, n_channels=num_hiddens) 
         self._pre_vq_conv = nn.Conv2d(
             in_channels=num_hiddens, out_channels=embedding_dim, kernel_size=1, stride=1
         )

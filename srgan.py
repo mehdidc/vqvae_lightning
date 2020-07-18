@@ -257,6 +257,7 @@ class Discriminator(nn.Module):
                 ConvolutionalBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
                                    stride=1 if i % 2 is 0 else 2, batch_norm=i is not 0, activation='LeakyReLu'))
             in_channels = out_channels
+        self.out_channels = out_channels
         self.conv_blocks = nn.Sequential(*conv_blocks)
 
         # An adaptive pool layer that resizes it to a standard size
@@ -280,13 +281,7 @@ class Discriminator(nn.Module):
         """
         batch_size = imgs.size(0)
         output = self.conv_blocks(imgs)
-        output = self.adaptive_pool(output)
-        output = self.fc1(output.view(batch_size, -1))
-        output = self.leaky_relu(output)
-        logit = self.fc2(output)
-
-        return logit
-
+        return output
 
 class TruncatedVGG19(nn.Module):
     """
@@ -342,8 +337,8 @@ class TruncatedVGG19(nn.Module):
         return output
 
 if __name__ == "__main__":
-    model = SRResNet(in_channels=64)
-    x = torch.randn(1,64,64,64)
+    model = Discriminator(n_blocks=4)
+    x = torch.randn(1,3,128,128)
     y = model(x)
     print(y.shape)
 
