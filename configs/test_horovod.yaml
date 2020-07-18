@@ -20,7 +20,8 @@ dataset_type: lmdb
 
 nb_examples: 100000
 
-batch_size: 128
+batch_size: 6
+
 num_workers: 10
 weight_decay: 0
 scheduler_gamma: 1
