@@ -25,7 +25,10 @@ from data import load_dataset
 from data import SubSet
 
 import pytorch_lightning as pl
+from pytorch_lightning.utilities import rank_zero_only
+
 from srgan import SRResNet
+
 
 class VectorQuantizerEMA(nn.Module):
     def __init__(
@@ -352,7 +355,8 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
-        self.discr = Resnet()
+        # self.discr = Resnet()
+        self.discr = PatchGAN()
         self.perceptual_loss = (
             Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
         )
@@ -435,6 +439,7 @@ class Model(pl.LightningModule):
             batch_size=self.hparams.batch_size,
             shuffle=shuffle,
             num_workers=self.hparams.num_workers,
+            collate_fn=None,
         )
 
     def configure_optimizers(self):
@@ -457,15 +462,17 @@ class Model(pl.LightningModule):
             discr, gamma=self.hparams.scheduler_gamma
         )
         return [discr, gen], [discr_scheduler, gen_scheduler]
-
+    
+    @rank_zero_only
     def on_epoch_end(self):
+        print("Epoch Finish")
         folder = self.hparams.folder
         if self.trainer.current_epoch % self.hparams.save_every == 0:
             self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
-            self.save_grids("train")
+            loader = self.train_dataloader(shuffle=False)
+            self.save_grids(loader, f"train_rec_epoch_{self.trainer.current_epoch:05d}.png")
 
-    def save_grids(self, split):
-        loader = self.train_dataloader(shuffle=False) if split == "train" else self.valid_dataloader(shuffle=False)
+    def save_grids(self, loader, out):
         X, Y = next(iter(loader))
         X = X.to(self.device)
         commit_loss, XR, perplexity = self.model(X)
@@ -476,7 +483,7 @@ class Model(pl.LightningModule):
         XR_grid = torchvision.utils.make_grid(XR, nrow=nrow)
         grid = torch.cat((X_grid, XR_grid), dim=2)
         torchvision.utils.save_image(
-            grid, os.path.join(self.hparams.folder, f"{split}_rec.png")
+            grid, os.path.join(self.hparams.folder, out)
         )
 
 class Resnet(torch.nn.Module):

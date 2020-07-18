@@ -14,7 +14,6 @@ import torchvision.transforms as transforms
 
 from torchvision.datasets.folder import default_loader
 
-
 class CacheDataset:
     def __init__(self, dataset):
         self.dataset = dataset
@@ -93,7 +92,6 @@ class LMDB:
             ykey = f"labelstr-{i}".encode()
             target = txn.get(ykey)
             target = target.decode()
-            # assert target, (ykey, target)
             imgbuf = txn.get(xkey)
         buf = io.BytesIO()
         buf.write(imgbuf)
@@ -107,6 +105,7 @@ class LMDB:
 
     def __len__(self):
         return self.nb
+
 
 class QuickDrawDataset:
     def __init__(self, path):
@@ -186,3 +185,8 @@ class ImageFolderWithPath(ImageFolder):
         if self.target_transform is not None:
             target = self.target_transform(target)
         return sample, target, path
+
+if __name__ == "__main__":
+    data = load_dataset("data/imagenet-lmdb/train", dataset_type="lmdb")
+    for x, y in data:
+        print(x.size, y)

@@ -14,7 +14,6 @@ from vqvae import Model as VQVAE
 
 from transformer_generator import Model as TransformerGenerator
 
-
 def train_vqvae(hparams_path, *, checkpoint=None):
     hparams = load_hparams(hparams_path)
     os.makedirs(hparams.folder, exist_ok=True)
