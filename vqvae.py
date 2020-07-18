@@ -424,7 +424,7 @@ class Model(pl.LightningModule):
             fs = self.discr(XR)
             gen_loss = 0
             for f in fs:
-                gen_loss += 0.01 * ((f-1)**2).mean()
+                gen_loss += 0.001 * ((f-1)**2).mean()
             loss = recons_loss + commit_loss + gen_loss
             output = OrderedDict(
                 {
