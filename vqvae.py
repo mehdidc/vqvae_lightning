@@ -356,7 +356,8 @@ class Model(pl.LightningModule):
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
         # self.discr = Resnet()
-        self.discr = PatchGAN()
+        # self.discr = PatchGAN()
+        self.discr = BigGanDiscr(resolution=hparams.image_size)
         self.perceptual_loss = (
             Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
         )
@@ -401,9 +402,11 @@ class Model(pl.LightningModule):
         if optimizer_idx == 0:
             with torch.no_grad():
                 commit_loss, XR, perplexity = self.model(X)
-            t = self.discr(X)
-            f = self.discr(XR)
-            loss = ((t-1)**2).mean() + ((f-0)**2).mean()
+            ts = self.discr(X)
+            fs = self.discr(XR)
+            loss = 0
+            for t, f in zip(ts, fs):
+                loss += ((t-1)**2).mean() + ((f-0)**2).mean()
             output = OrderedDict(
                 {
                     "loss": loss,
@@ -418,7 +421,10 @@ class Model(pl.LightningModule):
             recons_loss = F.mse_loss(X, XR)
             if self.perceptual_loss:
                 recons_loss += self.perceptual_loss(X, XR)
-            gen_loss = 0.01 * ((self.discr(XR)-1)**2).mean()
+            fs = self.discr(XR)
+            gen_loss = 0
+            for f in fs:
+                gen_loss += 0.01 * ((f-1)**2).mean()
             loss = recons_loss + commit_loss + gen_loss
             output = OrderedDict(
                 {
@@ -598,9 +604,24 @@ class ConcatDiscr(nn.Module):
         y = torch.cat(ys, 1)
         return y
 
+from BigGAN import Discriminator as BD, Generator as BG
+
+class BigGanDiscr(nn.Module):
+
+    def __init__(self, resolution=128):
+        super().__init__()
+        self.d = BD(resolution=resolution)
+        self.g = BG(resolution=resolution)
+
+    def forward(self, x):
+        ys = self.d(x)
+        ys = ys[::-1]
+        xr = self.g(ys[0], ys)
+        return xr, ys[0]
+
+
 if __name__ == "__main__":
-    model = PatchGAN(3)
-    x = torch.randn(1,3,256,256)
-    y = model(x)
-    print(y.shape)
-    
+    d = BigGanDiscr()
+    x = torch.randn(1,3,128,128)
+    x = d(x)
+    print(x.shape)
