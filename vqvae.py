@@ -25,6 +25,7 @@ from data import SubSet
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
+from pytorch_lightning.utilities.parsing import AttributeDict
 from srgan import SRResNet, Discriminator
 
 class VectorQuantizerEMA(nn.Module):
@@ -341,6 +342,8 @@ class VQVAE(nn.Module):
 class Model(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
+        if type(hparams) == dict:
+            hparams = AttributeDict(hparams)
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
@@ -349,6 +352,7 @@ class Model(pl.LightningModule):
         )
 
     def load_dataset(self, hparams):
+        print(hparams, type(hparams))
         dataset = load_dataset(
             hparams.train_dataset_folder,
             image_size=hparams.image_size,

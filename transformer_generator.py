@@ -18,6 +18,8 @@ from vqvae import Model as VQVAE
 from transformers import BertConfig, EncoderDecoderConfig, EncoderDecoderModel, BertLMHeadModel
 from transformers import EncoderDecoderModel, BertTokenizer
 
+from pytorch_lightning.utilities import rank_zero_only
+
 
 class Model(pl.LightningModule):
     def __init__(self, hparams, load_dataset=True):
@@ -186,7 +188,9 @@ class Model(pl.LightningModule):
             optimizer, gamma=self.hparams.scheduler_gamma
         )
         return [optimizer], [scheduler]
+        
     
+    @rank_zero_only
     def on_epoch_end(self):
         if self.current_epoch % self.hparams.save_every == 0:
             folder = self.hparams.folder
