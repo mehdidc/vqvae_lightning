@@ -1,4 +1,4 @@
-folder: results/srgan/vqaae
+folder: results/srgan/vqvae
 num_hiddens: 128
 num_residual_layers: 2
 num_residual_hiddens: 128
@@ -12,17 +12,20 @@ upsample_method: bilinear
 image_size: 256
 nb_channels: 3
 
-train_dataset_folder: data/imagenet-lmdb/train
-dataset_type: lmdb
+#train_dataset_folder: data/imagenet-lmdb/train
+#dataset_type: lmdb
 
 #train_dataset_folder: ../../data/imagenette-160/train/
 #dataset_type: image_folder
 
-nb_examples: 100000
+train_dataset_folder: data/celebahq/256
+dataset_type: image_folder
 
-batch_size: 64
+nb_examples: null
 
-num_workers: 10
+batch_size: 32
+
+num_workers: 0
 weight_decay: 0
 scheduler_gamma: 1
 lr: 0.0001
