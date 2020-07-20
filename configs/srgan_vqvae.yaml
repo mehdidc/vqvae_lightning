@@ -1,0 +1,33 @@
+folder: results/srgan/vqaae
+num_hiddens: 128
+num_residual_layers: 2
+num_residual_hiddens: 128
+num_embeddings: 512
+embedding_dim: 128
+commitment_cost: 1
+decay: 0.99
+stride: 8
+upsample_method: bilinear
+
+image_size: 256
+nb_channels: 3
+
+train_dataset_folder: data/imagenet-lmdb/train
+dataset_type: lmdb
+
+#train_dataset_folder: ../../data/imagenette-160/train/
+#dataset_type: image_folder
+
+nb_examples: 100000
+
+batch_size: 64
+
+num_workers: 10
+weight_decay: 0
+scheduler_gamma: 1
+lr: 0.0001
+epochs: 1000
+gpus: 1
+distributed_backend: horovod
+save_every: 1
+perceptual_loss: vgg19
