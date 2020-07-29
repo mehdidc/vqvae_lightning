@@ -28,6 +28,8 @@ from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.utilities.parsing import AttributeDict
 from srgan import SRResNet, Discriminator
 
+from perceptual import PerceptualLoss
+
 class VectorQuantizerEMA(nn.Module):
     def __init__(
         self, num_embeddings, embedding_dim, commitment_cost, decay, epsilon=1e-5
@@ -347,9 +349,14 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
-        self.perceptual_loss = (
-            Vgg(hparams.perceptual_loss) if hparams.perceptual_loss else None
-        )
+
+        if hparams.perceptual_loss is not None:
+            if hparams.perceptual_loss.startswith("vgg"):
+                self.perceptual_loss = Vgg(hparams.perceptual_loss)
+            elif hparams.perceptual_loss == "PerceptualSimilarity":
+                self.perceptual_loss = PerceptualLoss(model='net-lin', net='vgg', use_gpu=True)
+            else:
+                raise ValueError(hparams.perceptual_loss)
 
     def load_dataset(self, hparams):
         print(hparams, type(hparams))

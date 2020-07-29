@@ -18,5 +18,5 @@ ml cuDNN/7.5.1.10-CUDA-10.1.105
 export NCCL_DEBUG=INFO
 export NCCL_IB_CUDA_SUPPORT=0
 export NCCL_IB_DISABLE=1
-rm -fr results/srgan/vqvae
+#rm -fr results/srgan/vqvae
 srun python -u cli.py train-vqvae configs/vqvae.yaml

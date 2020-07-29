@@ -14,42 +14,70 @@ from torch import optim
 import torchvision
 
 from vqvae import Model as VQVAE
+from data import DatasetWithIndices
 
-from transformers import BertConfig, EncoderDecoderConfig, EncoderDecoderModel, BertLMHeadModel
-from transformers import EncoderDecoderModel, BertTokenizer
+from transformers import BertConfig, EncoderDecoderConfig, EncoderDecoderModel, BertLMHeadModel, BertTokenizer
+# from transformers import RobertaConfig, EncoderDecoderConfig, EncoderDecoderModel, RobertaLMHeadModel, RobertaTokenizer
 
 from pytorch_lightning.utilities import rank_zero_only
+from pytorch_lightning.utilities.parsing import AttributeDict
 
 
 class Model(pl.LightningModule):
-    def __init__(self, hparams, load_dataset=True):
+    def __init__(self, hparams, load_dataset=True, build_model=True, force_load_dataset=False, encoder_use_cache=True):
         super().__init__()
+        if type(hparams) == dict:
+            hparams = AttributeDict(hparams)
         self.tokenizer = self.build_tokenizer()
         if load_dataset:
-            self.dataset = self.load_dataset(hparams)
+            self.dataset = self.load_dataset(hparams, force=force_load_dataset)
             hparams.vocab_size = self.dataset.vocab_size
             hparams.height, hparams.width = self.dataset.shape[1:]
             hparams.max_length = self.dataset.length
             hparams.start_token = self.dataset.start_token
             hparams.encoder_max_length = self.dataset.encoder_max_length
-        self.model = self.build_model(hparams, self.tokenizer)
         self.hparams = hparams
-
-    def load_dataset(self, hparams):
+        if build_model:
+            self.model = self.build_model()
+        if hparams.fixed_encoder and encoder_use_cache == True:
+            print("Caching encoder outputs")
+            conds = self.dataset.dataset.tensors[1]
+            outputs = None
+            for start in range(0, len(conds), hparams.batch_size):
+                cond = conds[start:start+hparams.batch_size]
+                with torch.no_grad():
+                    encoder_outputs = self.model.encoder(cond)
+                if outputs is None:
+                    outputs = [[o] for o in encoder_outputs]
+                else:
+                    for i, o in enumerate(encoder_outputs):
+                        outputs[i].append(o)
+                print(start, "/", len(conds))
+            outputs = [torch.cat(o) for o in outputs]
+            self.encoder_outputs = outputs
+            print("Finished caching encoder outputs")
+                
+    def load_dataset(self, hparams, force=False):
         print("Loading the dataset of codes into memory...")
         device = "cuda" if hparams.gpus else "cpu"
         vqvae = VQVAE.load_from_checkpoint(hparams.vqvae_model_path)
         vqvae = vqvae.to(device)
         self.vqvae = vqvae
         nb = 0
-        path = os.path.join(os.path.dirname(hparams.vqvae_model_path), "code_dataset.th")
+        path = os.path.join(os.path.dirname(hparams.folder), "code_dataset.th")
         print(path)
-        if os.path.exists(path):
+        if os.path.exists(path) and not force:
             conds, codes, max_length = torch.load(path)
+            if hparams.nb_examples and len(codes) >= hparams.nb_examples:
+                codes = codes[: hparams.nb_examples]
+                conds = conds[: hparams.nb_examples]
             print("Loaded dataset from cache")
         else:
             max_length = 0
             for X, Y in vqvae.train_dataloader(shuffle=False):
+                if isinstance(Y, torch.Tensor):
+                    Y = Y.tolist()
+                    Y = list(map(str, Y))
                 Y = list(Y)
                 Y = self.tokenizer.batch_encode_plus(Y)
                 Y = Y["input_ids"]
@@ -57,12 +85,17 @@ class Model(pl.LightningModule):
                 if hparams.nb_examples and nb >= hparams.nb_examples:
                     break
                 nb += len(Y)
-                print(nb)
+                if nb % 100 == 0:
+                    print(nb)
             nb = 0
+            print(Y)
             print("MAX LENGTH:", max_length)
             conds = []
             codes = []
             for X, Y in vqvae.train_dataloader(shuffle=False):
+                if isinstance(Y, torch.Tensor):
+                    Y = Y.tolist()
+                    Y = list(map(str, Y))
                 X = X.to(device)
                 Y = list(Y)
                 Y = self.tokenizer.batch_encode_plus(
@@ -85,7 +118,8 @@ class Model(pl.LightningModule):
             if hparams.nb_examples and len(codes) >= hparams.nb_examples:
                 codes = codes[: hparams.nb_examples]
                 conds = conds[: hparams.nb_examples]
-            torch.save((conds, codes, max_length), path)
+            if rank_zero_only.rank == 0:
+                torch.save((conds, codes, max_length), path)
 
         vocab_size = vqvae.model.num_embeddings + 1#added one because of start token
         start_token = vqvae.model.num_embeddings
@@ -95,7 +129,7 @@ class Model(pl.LightningModule):
         )
         length = codes_.shape[1]
         print(codes_.shape, conds.shape)
-        dataset = TensorDataset(codes_, conds)
+        dataset = DatasetWithIndices(TensorDataset(codes_, conds))
         dataset.vocab_size = vocab_size
         dataset.shape = codes.shape
         dataset.length = length
@@ -120,11 +154,10 @@ class Model(pl.LightningModule):
     
     def build_tokenizer(self):
         tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-        # tokenizer.add_special_tokens({"cls_token": "<CLS>", "pad_token": "<PAD>", "eos_token": "<EOS>"})
         return tokenizer
     
-    def build_model(self, hparams, tokenizer):
-        path = "decoder"
+    def build_decoder(self, hparams, tokenizer):
+        path = os.path.join(self.hparams.folder, "decoder")
         decoder_config = BertConfig(
             is_decoder=True,
             vocab_size=hparams.vocab_size,
@@ -138,7 +171,11 @@ class Model(pl.LightningModule):
         )
         decoder = BertLMHeadModel(decoder_config)
         decoder.save_pretrained(path)
-        model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-uncased", "decoder")
+        return decoder
+
+    def build_model(self):
+        path = os.path.join(self.hparams.folder, "decoder")
+        model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-uncased", path)
         return model
 
     def generate(self, cond, temperature=1.0, do_sample=True, top_k=0, top_p=None):
@@ -159,8 +196,10 @@ class Model(pl.LightningModule):
         return result
 
     def training_step(self, batch, batch_idx):
-        X, Y = batch
-        with torch.no_grad():
+        inds, X, Y = batch
+        if self.hparams.fixed_encoder:
+            encoder_outputs = tuple([o[inds].to(X.device) for o in self.encoder_outputs])
+        else:
             encoder_outputs = self.model.encoder(Y)
         loss, *rest = self.model(
             decoder_input_ids=X,
@@ -184,19 +223,53 @@ class Model(pl.LightningModule):
             lr=self.hparams.lr,
             weight_decay=self.hparams.weight_decay,
         )
+        # we handle scheduling in optimizer_step, it's easier
         scheduler = lr_scheduler.ExponentialLR(
-            optimizer, gamma=self.hparams.scheduler_gamma
+            optimizer, 
+            gamma=1.0,
         )
         return [optimizer], [scheduler]
+
+    def optimizer_step(
+            self, 
+            current_epoch, 
+            batch_idx, 
+            optimizer,
+            optimizer_idx, 
+            second_order_closure, 
+            using_native_amp
+    ):
+        # warm up lr
+        warm = self.hparams.warmup_iter
+        if self.trainer.global_step < warm:
+            lr_scale = min(1., float(self.trainer.global_step + 1) / warm)
+            for pg in optimizer.param_groups:
+                pg['lr'] = lr_scale * self.hparams.lr
+        else:
+            if self.trainer.global_step == warm:
+                print("Finished warmup")
+                print("Schedule now: ", self.hparams.learning_rate_scheduler)
+            # polynomial decay with power 2
+            if self.hparams.learning_rate_scheduler == "poly":
+                total_steps = self.hparams.epochs * self.trainer.num_training_batches
+                decay = (1 - ((self.trainer.global_step - warm)/ total_steps)) ** 2
+                for pg in optimizer.param_groups:
+                    pg['lr'] = self.hparams.lr * decay
+            else:
+                pass
+        # update params
+        optimizer.step()
+        optimizer.zero_grad() 
         
-    
     @rank_zero_only
     def on_epoch_end(self):
+        print("epoch end")
         if self.current_epoch % self.hparams.save_every == 0:
             folder = self.hparams.folder
             self.trainer.save_checkpoint(os.path.join(folder, "model.th"))
-
-            X, Y = next(iter(self.train_dataloader(shuffle=True)))
+            if not self.hparams.generate:
+                return
+            inds, X, Y = next(iter(self.train_dataloader(shuffle=True)))
             nb = 9
             X = X[:nb]
             Y = Y[:nb]
@@ -209,7 +282,7 @@ class Model(pl.LightningModule):
             nrow = int(math.sqrt(len(X)))
             if (nrow ** 2) != len(X):
                 nrow = 8
-            out = os.path.join(self.hparams.folder, "true.png")
+            out = os.path.join(self.hparams.folder, f"true_epoch_{self.trainer.current_epoch:05d}.png")
             torchvision.utils.save_image(images, out, nrow=nrow)
 
 
@@ -222,7 +295,7 @@ class Model(pl.LightningModule):
             nrow = int(math.sqrt(len(codes)))
             if (nrow ** 2) != len(codes):
                 nrow = 8
-            out = os.path.join(self.hparams.folder, "gen.png")
+            out = os.path.join(self.hparams.folder, f"gen_epoch_{self.trainer.current_epoch:05d}.png")
             torchvision.utils.save_image(images, out, nrow=nrow)
 
 def generate_with_constraints(model, forbid, *args, **kwargs):
@@ -236,4 +309,3 @@ def generate_with_constraints(model, forbid, *args, **kwargs):
     y = model.generate(*args, **kwargs)
     model.forward = orig
     return y
-
