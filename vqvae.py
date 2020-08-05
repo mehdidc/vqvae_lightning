@@ -357,6 +357,8 @@ class Model(pl.LightningModule):
                 self.perceptual_loss = PerceptualLoss(model='net-lin', net='vgg', use_gpu=True)
             else:
                 raise ValueError(hparams.perceptual_loss)
+        else:
+            self.perceptual_loss = None
 
     def load_dataset(self, hparams):
         print(hparams, type(hparams))

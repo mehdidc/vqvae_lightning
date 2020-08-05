@@ -1,4 +1,4 @@
-folder: results/imagenet20JUL/vqvae
+folder: results/imagenet05AUG/vqvae
 num_hiddens: 128
 num_residual_layers: 2
 num_residual_hiddens: 128
@@ -21,7 +21,7 @@ dataset_type: lmdb
 #train_dataset_folder: data/celebahq/256
 #dataset_type: image_folder
 
-nb_examples: 100000
+nb_examples: 10000
 
 batch_size: 32
 
@@ -33,4 +33,4 @@ epochs: 1000
 gpus: 1
 distributed_backend: horovod
 save_every: 1
-perceptual_loss: PerceptualSimilarity 
+perceptual_loss: null

@@ -77,7 +77,7 @@ def transformer_generate(
     temperature=1.0,
     batch_size=16,
     top_k=0,
-    top_p=None,
+    top_p:float=None,
     folder=None,
     single_cond=False,
     custom_cond=None,
