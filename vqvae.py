@@ -352,9 +352,16 @@ class Model(pl.LightningModule):
 
         if hparams.perceptual_loss is not None:
             if hparams.perceptual_loss.startswith("vgg"):
-                self.perceptual_loss = Vgg(hparams.perceptual_loss)
+                self.perceptual_loss = Vgg(
+                    name=hparams.perceptual_loss, 
+                    resize=hparams.perceptual_loss_resize
+                )
             elif hparams.perceptual_loss == "PerceptualSimilarity":
-                self.perceptual_loss = PerceptualLoss(model='net-lin', net='vgg', use_gpu=True)
+                self.perceptual_loss = PerceptualLoss(
+                    model='net-lin', 
+                    net='vgg', 
+                    use_gpu=True
+                )
             else:
                 raise ValueError(hparams.perceptual_loss)
         else:
@@ -459,7 +466,7 @@ class Model(pl.LightningModule):
 
 class Vgg(torch.nn.Module):
     # From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
-    def __init__(self, name="vgg16"):
+    def __init__(self, name="vgg16", resize=False):
         super().__init__()
         cls = getattr(torchvision.models, name)
         vgg_pretrained_features = cls(pretrained=True).features
@@ -481,9 +488,12 @@ class Vgg(torch.nn.Module):
         std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
         self.register_buffer("mean", mean)
         self.register_buffer("std", std)
+        self.resize = resize
 
     def features(self, X):
         X = (X - self.mean) / self.std
+        if self.resize:
+            X = F.interpolate(X, mode='bilinear', size=(224, 224), align_corners=False)
         h = self.slice1(X)
         h_relu1_2 = h
         h = self.slice2(h)
