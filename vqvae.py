@@ -342,12 +342,13 @@ class VQVAE(nn.Module):
 
 
 class Model(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams, load_dataset=True):
         super().__init__()
         if type(hparams) == dict:
             hparams = AttributeDict(hparams)
         self.hparams = hparams
-        self.dataset = self.load_dataset(hparams)
+        if load_dataset:
+            self.dataset = self.load_dataset(hparams)
         self.model = self.build_model(hparams)
 
         if hparams.perceptual_loss is not None:
