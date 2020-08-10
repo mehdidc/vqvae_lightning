@@ -6,10 +6,10 @@ num_embeddings: 512
 embedding_dim: 128
 commitment_cost: 1
 decay: 0.99
-stride: 8
+stride: 4
 upsample_method: bilinear
 
-image_size: 256
+image_size: 96
 nb_channels: 3
 
 train_dataset_folder: data/imagenet-lmdb/train
@@ -21,9 +21,9 @@ dataset_type: lmdb
 #train_dataset_folder: data/celebahq/256
 #dataset_type: image_folder
 
-nb_examples: 10000
+nb_examples: null
 
-batch_size: 32
+batch_size: 128
 
 num_workers: 0
 weight_decay: 0
@@ -33,4 +33,5 @@ epochs: 1000
 gpus: 1
 distributed_backend: horovod
 save_every: 1
-perceptual_loss: null
+perceptual_loss: vgg19
+perceptual_loss_resize: False

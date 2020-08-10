@@ -1,5 +1,6 @@
 #!/bin/bash -x
-#SBATCH --nodes=4
+#SBATCH --account=cstdl
+#SBATCH --nodes=14
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=10
@@ -17,6 +18,11 @@ ml CUDA/10.1.105
 ml NCCL/2.4.6-1-CUDA-10.1.105
 ml cuDNN/7.5.1.10-CUDA-10.1.105
 export NCCL_DEBUG=INFO
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export HOROVOD_AUTOTUNE=1 
+export HOROVOD_HIERARCHICAL_ALLGATHER=0 
+export HOROVOD_HIERARCHICAL_ALLREDUCE=0 
 export NCCL_IB_CUDA_SUPPORT=0
 export NCCL_IB_DISABLE=1
+#export NCCL_IB_DISABLE=1
 srun python -u cli.py train-transformer-generator configs/transformer.yaml $*

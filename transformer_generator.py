@@ -1,7 +1,7 @@
 from functools import reduce
 from collections import OrderedDict
 from copy import deepcopy
-
+import time
 from unittest.mock import patch
 import os
 import math
@@ -43,15 +43,19 @@ class Model(pl.LightningModule):
             print("Caching encoder outputs")
             conds = self.dataset.dataset.tensors[1]
             outputs = None
-            for start in range(0, len(conds), hparams.batch_size):
-                cond = conds[start:start+hparams.batch_size]
+            # bs = hparams.batch_size
+            bs = 128
+            device = "cuda" if hparams.gpus else "cpu"
+            enc = self.model.encoder.to(device)
+            for start in range(0, len(conds), bs):
+                cond = conds[start:start+bs].to(device)
                 with torch.no_grad():
-                    encoder_outputs = self.model.encoder(cond)
+                    encoder_outputs = enc(cond)
                 if outputs is None:
-                    outputs = [[o] for o in encoder_outputs]
+                    outputs = [[o.data.cpu()] for o in encoder_outputs]
                 else:
                     for i, o in enumerate(encoder_outputs):
-                        outputs[i].append(o)
+                        outputs[i].append(o.data.cpu())
                 print(start, "/", len(conds))
             outputs = [torch.cat(o) for o in outputs]
             self.encoder_outputs = outputs
@@ -74,6 +78,11 @@ class Model(pl.LightningModule):
             print("Loaded dataset from cache")
         else:
             max_length = 0
+            print("Finding max conditional length")
+            # vqvae.hparams.batch_size =  256
+            # vqvae.hparams.num_workers = 16
+            size = len(vqvae.dataset)
+            start = time.time()
             for X, Y in vqvae.train_dataloader(shuffle=False):
                 if isinstance(Y, torch.Tensor):
                     Y = Y.tolist()
@@ -86,12 +95,15 @@ class Model(pl.LightningModule):
                     break
                 nb += len(Y)
                 if nb % 100 == 0:
-                    print(nb)
+                    imps = (time.time() - start) / nb
+                    remaining = imps * (size-nb)
+                    print(nb, imps, remaining) 
             nb = 0
             print(Y)
             print("MAX LENGTH:", max_length)
             conds = []
             codes = []
+            start = time.time()
             for X, Y in vqvae.train_dataloader(shuffle=False):
                 if isinstance(Y, torch.Tensor):
                     Y = Y.tolist()
@@ -110,9 +122,12 @@ class Model(pl.LightningModule):
                 zinds = vqvae.encode(X)
                 codes.append(zinds.data.cpu())
                 nb += len(zinds)
-                print(nb)
                 if hparams.nb_examples and nb >= hparams.nb_examples:
                     break
+                if nb % 100 == 0:
+                    imps = (time.time() - start) / nb
+                    remaining = imps * (size-nb)
+                    print(nb, imps, remaining) 
             conds = torch.cat(conds)
             codes = torch.cat(codes)
             if hparams.nb_examples and len(codes) >= hparams.nb_examples:
@@ -240,7 +255,11 @@ class Model(pl.LightningModule):
             using_native_amp
     ):
         # warm up lr
-        warm = self.hparams.warmup_iter
+        total_steps = self.hparams.epochs * self.trainer.num_training_batches
+        if self.hparams.warmup_ratio is not None:
+            warm = self.hparams.warmup_ratio * total_steps
+        else:
+            warm = self.hparams.warmup_iter
         if self.trainer.global_step < warm:
             lr_scale = min(1., float(self.trainer.global_step + 1) / warm)
             for pg in optimizer.param_groups:
@@ -251,7 +270,6 @@ class Model(pl.LightningModule):
                 print("Schedule now: ", self.hparams.learning_rate_scheduler)
             # polynomial decay with power 2
             if self.hparams.learning_rate_scheduler == "poly":
-                total_steps = self.hparams.epochs * self.trainer.num_training_batches
                 decay = (1 - ((self.trainer.global_step - warm)/ total_steps)) ** 2
                 for pg in optimizer.param_groups:
                     pg['lr'] = self.hparams.lr * decay
