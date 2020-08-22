@@ -92,6 +92,7 @@ def transformer_generate(
     gen.vqvae.eval()
     if folder is None:
         folder = gen.hparams.folder
+    os.makedirs(folder, exist_ok=True)
     xs = []
     ys = []
     nb = 0
@@ -144,6 +145,59 @@ def transformer_generate(
     torchvision.utils.save_image(images, out, nrow=nrow)
 
 
+@torch.no_grad()
+def transformer_generate_from_text(
+    generator_model_path, 
+    textfile,
+    *, 
+    device="cpu", 
+    nb_examples=1,
+    temperature=1.0,
+    batch_size=16,
+    top_k=0,
+    top_p:float=None,
+    folder=None,
+):
+    gen = TransformerGenerator.load_from_checkpoint(
+        generator_model_path,
+        load_dataset=True,
+        encoder_use_cache=False,
+    )
+    gen = gen.to(device)
+    gen.eval()
+    gen.vqvae.eval()
+    if folder is None:
+        folder = os.path.join(gen.hparams.folder, "gen")
+    os.makedirs(folder, exist_ok=True)
+    for custom_cond in open(textfile).readlines():
+        custom_cond = custom_cond.replace("\n", "")
+        Y = gen.encode_cond([custom_cond])
+        Y = Y[0:1].repeat(nb_examples, 1)
+        print(f"Generating from {custom_cond}..")
+        Y = Y.to(gen.device)
+        gen_func = partial(
+            gen.generate,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+        )
+        codes = _batch_run(gen_func, Y, batch_size)
+        print(codes.min(), codes.max())
+        print("Reconstructing...")
+        images = _batch_run(
+            gen.vqvae.model.reconstruct_from_code, 
+            codes, 
+            batch_size, 
+            device=gen.device
+        )
+        nrow = int(math.sqrt(len(codes)))
+        if (nrow ** 2) != len(codes):
+            nrow = 8
+        name = custom_cond.replace(",", "_")
+        name = name.replace(" ", "_")
+        out = os.path.join(folder, name+".png")
+        torchvision.utils.save_image(images, out, nrow=nrow)
 
 @torch.no_grad()
 def reconstruct(
@@ -208,5 +262,6 @@ if __name__ == "__main__":
         train_transformer_generator, 
         transformer_generator_build_decoder, 
         transformer_generate, 
+        transformer_generate_from_text,
         reconstruct
     ])

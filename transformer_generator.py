@@ -255,15 +255,20 @@ class Model(pl.LightningModule):
             using_native_amp
     ):
         # warm up lr
+        verbose = (self.trainer.global_step % 100 == 0)
+
         total_steps = self.hparams.epochs * self.trainer.num_training_batches
         if self.hparams.warmup_ratio is not None:
-            warm = self.hparams.warmup_ratio * total_steps
+            warm = int(self.hparams.warmup_ratio * total_steps)
         else:
             warm = self.hparams.warmup_iter
         if self.trainer.global_step < warm:
+            if verbose:
+                print("warm iters: ", warm)
             lr_scale = min(1., float(self.trainer.global_step + 1) / warm)
+            lr = lr_scale * self.hparams.lr
             for pg in optimizer.param_groups:
-                pg['lr'] = lr_scale * self.hparams.lr
+                pg['lr'] = lr
         else:
             if self.trainer.global_step == warm:
                 print("Finished warmup")
@@ -271,10 +276,15 @@ class Model(pl.LightningModule):
             # polynomial decay with power 2
             if self.hparams.learning_rate_scheduler == "poly":
                 decay = (1 - ((self.trainer.global_step - warm)/ total_steps)) ** 2
+                lr = self.hparams.lr * decay
                 for pg in optimizer.param_groups:
-                    pg['lr'] = self.hparams.lr * decay
+                    pg['lr'] = lr
             else:
-                pass
+                lr = self.hparams.lr
+                for pg in optimizer.param_groups:
+                    pg['lr'] = lr
+        if verbose:
+            print("LR", lr)
         # update params
         optimizer.step()
         optimizer.zero_grad() 

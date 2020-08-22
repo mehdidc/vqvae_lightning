@@ -8,12 +8,14 @@
 #SBATCH --error=err
 #SBATCH --time=08:00:00
 source ~/pyenv
+#conda activate hdfml
 ml purge
 ml use $OTHERSTAGES
 ml Stages/2019a
 ml GCC/8.3.0
 ml ParaStationMPI/5.4.4-1-CUDA
 #ml MVAPICH2/2.3.3-GDR
+#ml ParaStationMPI/5.2.2-1
 ml CUDA/10.1.105
 ml NCCL/2.4.6-1-CUDA-10.1.105
 ml cuDNN/7.5.1.10-CUDA-10.1.105
@@ -24,5 +26,4 @@ export HOROVOD_HIERARCHICAL_ALLGATHER=0
 export HOROVOD_HIERARCHICAL_ALLREDUCE=0 
 export NCCL_IB_CUDA_SUPPORT=0
 export NCCL_IB_DISABLE=1
-#export NCCL_IB_DISABLE=1
-srun python -u cli.py train-transformer-generator configs/transformer.yaml $*
+srun --cpu-bind=none,v --accel-bind=gn python -u cli.py train-transformer-generator configs/transformer.yaml $*

@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=128
 #SBATCH --output=gen_out
 #SBATCH --error=gen_err
-#SBATCH --time=01:00:00
+#SBATCH --time=06:00:00
 #SBATCH --partition=gpus
 #SBATCH --gres=gpu:1
 source ~/pyenv
@@ -16,6 +16,4 @@ ml CUDA/10.1.105
 ml NCCL/2.4.6-1-CUDA-10.1.105
 ml cuDNN/7.5.1.10-CUDA-10.1.105
 export NCCL_DEBUG=INFO
-export NCCL_IB_CUDA_SUPPORT=0
-export NCCL_IB_DISABLE=1
-python -u cli.py transformer-generate $1 --nb-examples=9 --device=cuda --temperature=1 --single-cond
+python -u cli.py transformer-generate-from-text $1 classes.txt --nb-examples=16 --device=cuda --temperature=0.9
